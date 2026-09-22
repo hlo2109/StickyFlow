@@ -183,8 +183,8 @@ function syncNoteToMarkdown(note) {
     const safeTitle = (note.title || 'nota_sin_titulo')
       .replace(/[/\\?%*:|"<>]/g, '_')
       .substring(0, 50)
-      .trim();
-    const fileName = `${safeTitle || 'nota'}_${note.id.substring(0, 6)}.md`;
+    const suffix = note.id ? note.id.replace(/^note-/, '').slice(-6) : Date.now().toString().slice(-6);
+    const fileName = `${safeTitle || 'nota'}_${suffix}.md`;
     const filePath = path.join(dir, fileName);
 
     const bitacoraYaml = (note.bitacora || [])

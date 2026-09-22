@@ -125,24 +125,33 @@ export const App: React.FC = () => {
       }
 
       if (loadedNotes && loadedNotes.length > 0) {
-        // Clean up redundant blank notes that were created in a row without content
-        let hasOneBlank = false;
-        const cleanedNotes = loadedNotes.filter((n) => {
-          const isBlank =
-            (!n.title || n.title.trim() === '') &&
-            (!n.content || n.content.replace(/<[^>]*>?/gm, '').trim() === '') &&
-            (!n.markdownContent || n.markdownContent.trim() === '');
-          if (isBlank) {
-            if (!hasOneBlank) {
-              hasOneBlank = true;
-              return true;
-            }
-            return false;
-          }
-          return true;
-        });
+        const hasRealContent = loadedNotes.some((n) =>
+          (n.title && n.title.trim() !== '') ||
+          (n.markdownContent && n.markdownContent.trim() !== '') ||
+          (n.content && n.content.replace(/<[^>]*>?/gm, '').trim() !== '')
+        );
 
-        const finalNotes = cleanedNotes.length > 0 ? cleanedNotes : [INITIAL_WELCOME_NOTE];
+        let finalNotes: Note[];
+        if (!hasRealContent) {
+          finalNotes = [INITIAL_WELCOME_NOTE];
+        } else {
+          let hasOneBlank = false;
+          finalNotes = loadedNotes.filter((n) => {
+            const isBlank =
+              (!n.title || n.title.trim() === '') &&
+              (!n.content || n.content.replace(/<[^>]*>?/gm, '').trim() === '') &&
+              (!n.markdownContent || n.markdownContent.trim() === '');
+            if (isBlank) {
+              if (!hasOneBlank) {
+                hasOneBlank = true;
+                return true;
+              }
+              return false;
+            }
+            return true;
+          });
+        }
+
         setNotes(finalNotes);
         setActiveNoteId(finalNotes[0].id);
         if (finalNotes.length !== loadedNotes.length) {
@@ -299,13 +308,15 @@ export const App: React.FC = () => {
 
   // Create new blank note
   const handleCreateNewNote = () => {
-    // If current active note is already completely empty (no title, no content), just stay on it
-    if (
-      activeNote &&
-      (!activeNote.title || activeNote.title.trim() === '') &&
-      (!activeNote.content || activeNote.content.replace(/<[^>]*>?/gm, '').trim() === '') &&
-      (!activeNote.markdownContent || activeNote.markdownContent.trim() === '')
-    ) {
+    // If there is already an existing blank note in the list, just navigate to it
+    const isBlank = (n: Note) =>
+      (!n.title || n.title.trim() === '') &&
+      (!n.content || n.content.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, '').trim() === '') &&
+      (!n.markdownContent || n.markdownContent.trim() === '');
+
+    const existingBlank = notes.find(isBlank);
+    if (existingBlank) {
+      setActiveNoteId(existingBlank.id);
       return;
     }
 

@@ -75,7 +75,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const sortedNotes = [...filteredNotes].sort((a, b) => {
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;
-    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime() || 0;
+    const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime() || 0;
+    return timeB - timeA;
   });
 
   const getColorBg = (color: string) => {
@@ -90,11 +92,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const formatNoteDate = (dateStr?: string) => {
+    if (!dateStr) return 'Reciente';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'Reciente';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch {
+      return 'Reciente';
+    }
+  };
+
   const getCleanSnippet = (note: Note) => {
     const raw = note.markdownContent || note.content || '';
     if (raw) {
       const clean = raw
         .replace(/<[^>]*>?/gm, '')
+        .replace(/&nbsp;/g, ' ')
         .replace(/#+\s+/g, '')
         .replace(/\[\s*\]/g, '☐ ')
         .replace(/\[x\]/g, '☑ ')
@@ -114,12 +128,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="font-semibold text-xs tracking-wider uppercase text-slate-500 dark:text-slate-400">
-            Mis Notas ({notes.length})
+            {searchQuery
+              ? `Resultados (${sortedNotes.length} de ${notes.length})`
+              : filterMode === 'pinned'
+              ? `Fijadas (${sortedNotes.length} de ${notes.length})`
+              : `Mis Notas (${sortedNotes.length})`}
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={onNewNote}
+            onClick={() => {
+              setFilterMode('all');
+              setSearchQuery('');
+              onNewNote();
+            }}
             className="p-1 rounded bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-1 text-xs px-2"
             title="Crear nueva nota"
           >
@@ -220,7 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-slate-400">
                   <span className="flex items-center gap-0.5">
                     <Clock size={10} />
-                    {new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    {formatNoteDate(note.updatedAt || note.createdAt)}
                   </span>
 
                   {/* Actions on hover */}
