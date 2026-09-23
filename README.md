@@ -9,9 +9,9 @@
 ![TailwindCSS](https://img.shields.io/badge/Tailwind-4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
 ![License](https://img.shields.io/badge/Licencia-MIT-green?style=for-the-badge)
 
-**Un bloc de notas de escritorio ultraligero, siempre visible y personalizable, potenciado con Inteligencia Artificial (Hugging Face y Claude), dictado por voz, actas automáticas de reuniones, dock retráctil y mini sticks flotantes estilo post-it.**
+**Un bloc de notas de escritorio ultraligero, siempre visible y altamente personalizable, potenciado con Inteligencia Artificial (Hugging Face y Claude), dictado por voz con Whisper, actas automáticas de reuniones, dock retráctil y mini sticks flotantes estilo post-it.**
 
-[📸 Muestras del Sistema](#-muestras-del-sistema) • [🚀 Novedades](#-novedades-de-esta-actualización) • [✨ Características](#-características-destacadas) • [📥 Descarga e Instalación](#-instalación-y-descarga) • [🛠️ Compilación](#-compilación-y-desarrollo) • [⌨️ Atajos](#-atajos-de-teclado) • [⚙️ Configuración de IA](#-configuración-de-ia-y-modelos)
+[📸 Muestras del Sistema](#-muestras-del-sistema) • [🚀 Novedades](#-novedades-de-la-actualización) • [✨ Características](#-características-destacadas) • [📥 Descarga](#-instalación-y-descarga) • [🛠️ Compilación](#-compilación-y-desarrollo) • [⌨️ Atajos](#-atajos-de-teclado) • [⚙️ Configuración de IA](#-configuración-de-ia-y-modelos)
 
 </div>
 
@@ -19,58 +19,67 @@
 
 ## 📸 Muestras del Sistema
 
-A continuación se presentan capturas y demostraciones visuales del entorno de trabajo de StickyFlow:
+A continuación se presentan las capturas reales de la interfaz y funcionalidades de **StickyFlow**:
 
 <div align="center">
 
-| Vista Principal y Notas Flotantes | Editor Inteligente con IA |
-|:---:|:---:|
-| ![StickyFlow - Vista Principal](assets/captura-principal.png) | ![StickyFlow - Asistente de IA](assets/captura-ia.png) |
+### 🖥️ Vista Principal y Separadores de Cuaderno en Pantalla (Dock Lateral)
+*Editor flotante siempre visible (Always-on-Top) con barra lateral de notas ancladas al borde del escritorio.*
 
-| Modo Reunión (Grabación + Transcripción) | Mini Sticks Post-it Independientes |
-|:---:|:---:|
-| ![StickyFlow - Modo Reunión](assets/captura-reunion.png) | ![StickyFlow - Mini Sticks](assets/captura-sticks.png) |
+<img src="assets/vista%20previa_nota_penal_lateral.png" alt="StickyFlow - Vista Principal y Dock Lateral" width="90%" />
 
-*(Las capturas del sistema se encuentran en el directorio [`assets/`](assets/))*
+<br/><br/>
+
+| 🎙️ Dictado por Voz en Tiempo Real | 🎧 Modo Reunión (Audio Sistema + Micrófono) |
+|:---:|:---:|
+| <img src="assets/modo_dictar.png" alt="StickyFlow - Dictado por Voz" width="100%" /> | <img src="assets/modo_reunion.png" alt="StickyFlow - Modo Reunión Inteligente" width="100%" /> |
+| **Dictado fluido con Whisper AI** (`whisper-large-v3-turbo`) directamente al cuerpo de la nota. | **Captura combinada de audio:** Graba llamadas virtuales (Meet, Teams, Zoom) y tu voz para generar actas automáticas con IA. |
+
+<br/>
+
+| 🤖 Asistente de IA & Modelos | ⚙️ Configuración General, Opacidad y Dock |
+|:---:|:---:|
+| <img src="assets/config_ia_modelos.png" alt="StickyFlow - Configuración de IA y Modelos" width="100%" /> | <img src="assets/configuracion_ventanas_general.png" alt="StickyFlow - Configuración General y Separadores" width="100%" /> |
+| **Multimodelo:** Hugging Face Router (`openai/gpt-oss-120b`) y Anthropic Claude 3.5 Sonnet con enmascaramiento de seguridad. | **Personalización:** Control de opacidad de ventana, posición del Dock (Izquierda/Derecha), etiquetas y Always-on-Top. |
 
 </div>
 
 ---
 
-## 🚀 Novedades de esta Actualización
+## 🚀 Novedades de la Actualización
 
-Esta versión incluye importantes mejoras de estabilidad, nuevas herramientas de compilación y optimizaciones en la experiencia de usuario:
+Esta versión incorpora importantes optimizaciones en la experiencia de uso, estabilidad y herramientas de desarrollo:
 
-- ⚡ **Compilación a Producción con 1 Clic:** Se han incorporado los scripts automáticos [`Compilar-Produccion.bat`](Compilar-Produccion.bat) (para Windows) y [`compilar-produccion.sh`](compilar-produccion.sh) (para Linux/WSL), permitiendo generar los instaladores y versiones portables con un solo clic.
-- 🚀 **Despliegue Rápido a Git:** Nuevos scripts [`desplegar-git.bat`](desplegar-git.bat) y [`desplegar-git.sh`](desplegar-git.sh) para sincronizar y publicar actualizaciones en el repositorio con un flujo verificado.
-- 🗂️ **Sidebar y Contador de Notas Corregido:** Se solucionó el desfase en el contador de notas activas, garantizando que el recuento de notas totales y ancladas coincida exactamente con la lista visible.
-- 🧹 **Deduplicación Automática de Notas Vacías:** El sistema detecta y evita la acumulación de notas en blanco cuando se crean nuevas entradas sin contenido.
-- 📝 **Nombres Únicos de Archivos Markdown:** Generación inteligente de nombres de archivo `.md` en disco para evitar colisiones o sobrescrituras accidentales.
-- 📌 **Multi-Ventana y Mini Sticks Desprendibles:** Mayor fluidez al desprender notas individuales a post-its flotantes para trabajar en múltiples monitores.
-- 🖼️ **Galería de Muestras del Sistema:** Incorporación de recursos visuales en la carpeta `assets/` para documentación pública.
+- 🗂️ **Sidebar y Contador de Notas Corregido:** Se solucionó el desfase entre las notas visualizadas y el contador numérico, mostrando la cantidad real de notas filtradas y ancladas.
+- 🧹 **Deduplicación de Notas Vacías:** El sistema previene la acumulación innecesaria de notas en blanco al abrir o crear notas sucesivas.
+- 📝 **Nombres Únicos para Archivos Markdown:** Generación inteligente de nombres de archivo `.md` en disco para evitar sobreescrituras accidentales.
+- ⚡ **Compilación a Producción Optimizada:** Incorporación del script directo [`Compilar-Produccion.bat`](Compilar-Produccion.bat) para empaquetar el instalador NSIS y la versión portable en un solo paso.
+- 📌 **Separadores de Cuaderno (Dock en Pantalla):** Pestañas fijas en el borde de la pantalla que se expanden al pasar el cursor sin saturar la barra de tareas de Windows.
+- 🖼️ **Documentación Visual Integrada:** Capturas de muestra reales agregadas a la carpeta [`assets/`](assets/) y documentadas en el repositorio público.
 
 ---
 
 ## ✨ Características Destacadas
 
 ### 📌 1. Ventana Siempre Flotante y Mini Sticks Post-It
-- **Modo Siempre Visible (`Always on Top`):** Mantén tus notas flotando sobre cualquier programa, juego, IDE o navegador sin perderlas de vista.
-- **Mini Sticks de Pantalla:** Desprende cualquier nota como un mini post-it independiente con su color personalizado, título y resumen. Puedes repartir tantos como necesites en tu escritorio o pantallas secundarias.
-- **Acceso Inmediato:** Haz clic en un mini stick flotante para abrir la aplicación principal y saltar directamente a esa nota a tamaño completo.
+- **Modo Siempre Visible (`Always on Top`):** Mantén tus notas flotando sobre cualquier programa, juego, IDE o navegador sin perder el foco.
+- **Mini Sticks de Pantalla:** Desprende cualquier nota como un mini post-it independiente con su color personalizado, título y resumen. Puedes repartir tantos como necesites en tus monitores.
+- **Acceso Inmediato:** Haz clic en un mini stick flotante para abrir la aplicación principal y saltar directamente a esa nota en pantalla completa.
 - **Paleta de 6 Colores:** Amarillo clásico, azul cielo, verde menta, morado lavanda, rosa pastel y modo oscuro grafito.
 
-### 📑 2. Dock Lateral Retráctil Inteligente
-- Barra lateral discreta en el borde de tu pantalla que te permite acceder a tus notas más importantes al pasar el cursor o hacer clic.
-- Configurable en posición (izquierda o derecha), con opción de mostrar u ocultar títulos para máxima discreción visual.
+### 📑 2. Separadores de Cuaderno en Pantalla (Dock Lateral)
+- Pequeñas pestañas discretas agrupadas en el borde de tu pantalla (izquierda o derecha).
+- Al pasar el cursor por encima, se expande una descripción previa completa de la nota anclada sin necesidad de abrir la aplicación completa.
+- Siempre visibles y configurables en opacidad.
 
 ### 📝 3. Editor Híbrido: Texto Enriquecido + Markdown Puro
-- **Editor Visual Enriquecido (Tiptap):** Escribe con formato visual, encabezados H1-H3, negrita, cursiva, listas de tareas interactivas con checkbox (`- [ ]`), citas y bloques de código con resaltado sintáctico.
-- **Modo Markdown Real Instantáneo:** Alterna en cualquier momento al modo código Markdown puro con un solo clic para ver o editar la sintaxis directamente sin pérdida de datos.
+- **Editor Visual Enriquecido (Tiptap):** Escribe con formato visual, encabezados H1-H2, negrita, cursiva, tachado, listas de tareas interactivas con checkbox (`- [ ]`), citas y bloques de código.
+- **Modo Markdown Real Instantáneo:** Alterna en cualquier momento al modo código Markdown puro con un solo clic (`</> Visual` / `Markdown`) para ver o editar la sintaxis directamente sin pérdida de datos.
 - **Soporte de Imágenes por Portapapeles:** Pega capturas de pantalla o imágenes directamente en el editor con `Ctrl + V`.
 - **Métricas en Tiempo Real:** Visualiza el recuento de palabras y caracteres actualizados al instante en la barra inferior.
 
 ### 📅 4. Bitácora Automática con F5
-- Presiona `F5` en cualquier momento dentro de la nota para insertar automáticamente una marca de fecha y hora (`📅 [2026-09-23 14:30] - `).
+- Presiona `F5` en cualquier momento dentro de la nota para insertar automáticamente una marca de fecha y hora (`📅 [2026-09-23 15:00] - `).
 - Historial de actividad registrado por nota con marcas de tiempo para seguimiento de tareas, bitácoras de trabajo o diario de desarrollo.
 
 ### 🤖 5. Asistente de IA Integrado (Hugging Face Router + Claude)
@@ -80,7 +89,7 @@ Esta versión incluye importantes mejoras de estabilidad, nuevas herramientas de
   - 🪄 **Mejorar redacción:** Perfecciona la claridad, gramática y tono profesional del texto.
   - ☑️ **Extraer To-Do:** Convierte párrafos desestructurados en listas de tareas pendientes accionables.
   - ✍️ **Corregir ortografía y puntuación.**
-- **Creación de Notas desde Ideas Sueltas:** Pega tus ideas desordenadas, notas de voz o pensamientos rápidos y la IA redactará una nota profesional organizada con títulos, secciones lógicas y viñetas.
+- **Creación de Notas desde Ideas Sueltas:** Pega tus ideas desordenadas o apuntes rápidos y la IA redactará una nota profesional organizada con títulos, secciones lógicas y viñetas.
 - **Inserción Directa:** Al terminar la respuesta de IA, puedes elegir *“Insertar en nota actual”*, *“Reemplazar contenido”* o *“Crear como nueva nota”*.
 - **Integración con Claude Desktop:** Botón **"Claude"** en la barra superior para copiar al portapapeles un prompt contextualizado con la nota y toda su bitácora de actividad.
 
@@ -159,11 +168,11 @@ npm start
 npm run electron:dev
 ```
 
-### 3. Compilar a Producción con 1 Clic
+### 3. Compilar a Producción
 Puedes utilizar el script para Windows:
 - Haz doble clic en [`Compilar-Produccion.bat`](Compilar-Produccion.bat)
 
-O ejecutar desde la terminal:
+O ejecutar directamente desde la terminal:
 ```bash
 # Compilar Instalador Oficial (.exe) y Versión Portable a la vez:
 npm run build:all
@@ -174,10 +183,6 @@ npm run build:installer
 # O si solo deseas el ejecutable Portable autónomo:
 npm run build:portable
 ```
-
-### 4. Desplegar Cambios a GitHub
-Para publicar actualizaciones con un solo clic:
-- Haz doble clic en [`desplegar-git.bat`](desplegar-git.bat) o ejecuta `./desplegar-git.sh` en WSL.
 
 ---
 
