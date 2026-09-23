@@ -31,7 +31,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   speechLang: 'es-ES',
   alwaysOnTop: true,
   defaultColor: 'yellow',
-  opacity: 0.98
+  opacity: 0.98,
+  dockPosition: 'right',
+  dockShowTitles: true,
+  dockEnabled: true,
+  dockedNoteIds: []
 };
 
 const INITIAL_WELCOME_NOTE: Note = {
@@ -75,9 +79,22 @@ Esta es tu nueva aplicación de notas tipo **sticky note** para Windows, siempre
   ]
 };
 
+const getParamFromUrl = (name: string): string | null => {
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.has(name)) return searchParams.get(name);
+
+    const hash = window.location.hash.replace(/^#/, '');
+    const hashParams = new URLSearchParams(hash);
+    if (hashParams.has(name)) return hashParams.get(name);
+  } catch {}
+  return null;
+};
+
 export const App: React.FC = () => {
+  const requestedNoteId = getParamFromUrl('noteId');
   const [notes, setNotes] = useState<Note[]>([]);
-  const [activeNoteId, setActiveNoteId] = useState<string>('');
+  const [activeNoteId, setActiveNoteId] = useState<string>(requestedNoteId || '');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(true);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -152,8 +169,12 @@ export const App: React.FC = () => {
           });
         }
 
+        const initialId = (requestedNoteId && finalNotes.some((n) => n.id === requestedNoteId))
+          ? requestedNoteId
+          : finalNotes[0].id;
+
         setNotes(finalNotes);
-        setActiveNoteId(finalNotes[0].id);
+        setActiveNoteId(initialId);
         if (finalNotes.length !== loadedNotes.length) {
           triggerSave(finalNotes);
         }
@@ -170,15 +191,36 @@ export const App: React.FC = () => {
         setIsPinned(val);
       });
     }
+
+    if (window.electronAPI?.onNotesUpdated) {
+      window.electronAPI.onNotesUpdated((updatedNotes) => {
+        if (Array.isArray(updatedNotes) && updatedNotes.length > 0) {
+          setNotes(updatedNotes);
+        }
+      });
+    }
   }, []);
 
-  // Track floating mini sticky notes on desktop
+  // Track floating mini sticky notes and docked notebook tabs
   const [openMiniStickIds, setOpenMiniStickIds] = useState<string[]>([]);
+  const [dockedNoteIds, setDockedNoteIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (window.electronAPI?.getOpenMiniStickies) {
       window.electronAPI.getOpenMiniStickies().then((ids) => {
         if (Array.isArray(ids)) setOpenMiniStickIds(ids);
+      });
+    }
+
+    if (window.electronAPI?.getDockedNotes) {
+      window.electronAPI.getDockedNotes().then((ids) => {
+        if (Array.isArray(ids)) setDockedNoteIds(ids);
+      });
+    }
+
+    if (window.electronAPI?.onDockedIdsChanged) {
+      window.electronAPI.onDockedIdsChanged((ids) => {
+        setDockedNoteIds(ids);
       });
     }
 
@@ -199,7 +241,10 @@ export const App: React.FC = () => {
 
   const handleToggleMiniSticky = async (note: Note, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (window.electronAPI?.toggleMiniSticky) {
+    if (window.electronAPI?.toggleDockPin) {
+      const updated = await window.electronAPI.toggleDockPin(note.id);
+      setDockedNoteIds(updated);
+    } else if (window.electronAPI?.toggleMiniSticky) {
       await window.electronAPI.toggleMiniSticky(note);
     }
   };
@@ -559,6 +604,13 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isSidebarOpen, notes, activeNoteId]);
 
+  const handleOpenInNewWindow = (noteId?: string) => {
+    const targetId = noteId || activeNote?.id;
+    if (targetId && window.electronAPI?.openNoteWindow) {
+      window.electronAPI.openNoteWindow(targetId);
+    }
+  };
+
   const currentColor = activeNote?.color || 'yellow';
 
   return (
@@ -585,7 +637,8 @@ export const App: React.FC = () => {
         onCopyForClaude={handleCopyForClaude}
         onOpenFolder={handleOpenFolder}
         onToggleMiniStick={activeNote ? () => handleToggleMiniSticky(activeNote) : undefined}
-        isMiniPinned={activeNote ? openMiniStickIds.includes(activeNote.id) : false}
+        isMiniPinned={activeNote ? (dockedNoteIds.includes(activeNote.id) || openMiniStickIds.includes(activeNote.id)) : false}
+        onOpenInNewWindow={() => handleOpenInNewWindow(activeNote?.id)}
       />
 
       {/* Main Workspace (Editor + Right Collapsible Sidebar) */}
@@ -600,7 +653,7 @@ export const App: React.FC = () => {
               onAddBitacoraLog={handleAddBitacoraLog}
               onOpenMeetingMode={() => setIsMeetingModalOpen(true)}
               onToggleMiniSticky={handleToggleMiniSticky}
-              isMiniPinned={openMiniStickIds.includes(activeNote.id)}
+              isMiniPinned={dockedNoteIds.includes(activeNote.id) || openMiniStickIds.includes(activeNote.id)}
             />
           ) : (
             <div className="flex-1 flex items-center justify-center text-xs opacity-50">
@@ -620,7 +673,8 @@ export const App: React.FC = () => {
           onTogglePinNote={handleTogglePinNote}
           onOpenFolder={handleOpenFolder}
           onToggleMiniSticky={handleToggleMiniSticky}
-          openMiniStickIds={openMiniStickIds}
+          openMiniStickIds={Array.from(new Set([...openMiniStickIds, ...dockedNoteIds]))}
+          onOpenInNewWindow={handleOpenInNewWindow}
         />
       </div>
 

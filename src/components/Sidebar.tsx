@@ -9,7 +9,8 @@ import {
   FolderOpen,
   Calendar,
   Clock,
-  StickyNote
+  StickyNote,
+  ExternalLink
 } from 'lucide-react';
 import { Note } from '../types';
 
@@ -25,6 +26,7 @@ interface SidebarProps {
   onOpenFolder: () => void;
   onToggleMiniSticky?: (note: Note, e: React.MouseEvent) => void;
   openMiniStickIds?: string[];
+  onOpenInNewWindow?: (noteId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenFolder,
   onToggleMiniSticky,
   openMiniStickIds = [],
+  onOpenInNewWindow,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'pinned'>('all');
@@ -210,6 +213,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div
                 key={note.id}
                 onClick={() => onSelectNote(note.id)}
+                onDoubleClick={() => onOpenInNewWindow?.(note.id)}
+                title="Clic para ver nota, doble clic para abrir en ventana independiente"
                 className={`group relative p-2.5 rounded-lg cursor-pointer transition-all border ${
                   isActive
                     ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800 shadow-xs'
@@ -225,7 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {openMiniStickIds.includes(note.id) && (
-                      <span title="Anclada en pantalla como mini stick" className="p-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">
+                      <span title="Fijada en los separadores de pantalla (Dock)" className="p-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">
                         <StickyNote size={11} />
                       </span>
                     )}
@@ -247,10 +252,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                   {/* Actions on hover */}
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {onOpenInNewWindow && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenInNewWindow(note.id);
+                        }}
+                        title="Abrir en ventana independiente"
+                        className="p-1 hover:text-blue-500 rounded transition-colors"
+                      >
+                        <ExternalLink size={12} />
+                      </button>
+                    )}
                     {onToggleMiniSticky && (
                       <button
                         onClick={(e) => onToggleMiniSticky(note, e)}
-                        title={openMiniStickIds.includes(note.id) ? 'Cerrar mini stick en pantalla' : 'Anclar como mini stick flotante en pantalla'}
+                        title={openMiniStickIds.includes(note.id) ? 'Desanclar del dock de separadores' : 'Fijar como separador de cuaderno en pantalla (Dock)'}
                         className={`p-1 rounded transition-colors ${
                           openMiniStickIds.includes(note.id)
                             ? 'text-amber-600 bg-amber-500/20'

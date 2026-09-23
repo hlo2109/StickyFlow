@@ -14,7 +14,8 @@ import {
   FolderOpen,
   ExternalLink,
   Lock,
-  Cloud
+  Cloud,
+  StickyNote
 } from 'lucide-react';
 import { AppSettings, DbMode, RemoteDbProvider } from '../types';
 
@@ -511,6 +512,104 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       onChange={(e) => setFormData({ ...formData, opacity: parseFloat(e.target.value) })}
                       className="w-full accent-blue-600 cursor-pointer"
                     />
+                  </div>
+
+                  {/* SECCIÓN DE SEPARADORES DE CUADERNO / DOCK */}
+                  <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 rounded-lg border border-amber-200 dark:border-amber-900/60 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <StickyNote size={15} className="text-amber-600 dark:text-amber-400" />
+                        <span className="font-semibold text-xs text-amber-950 dark:text-amber-200">
+                          Separadores de Cuaderno en Pantalla (Dock)
+                        </span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.dockEnabled !== false}
+                        onChange={(e) => setFormData({ ...formData, dockEnabled: e.target.checked })}
+                        className="w-4 h-4 rounded text-amber-600"
+                      />
+                    </div>
+
+                    <p className="text-[11px] text-amber-800/90 dark:text-amber-300/80 leading-relaxed">
+                      Agrupa tus notas ancladas como pequeños separadores centrados en el borde de tu pantalla. Al pasar el cursor se expande una descripción completa, sin saturar la barra de tareas de Windows.
+                    </p>
+
+                    {formData.dockEnabled !== false && (
+                      <div className="space-y-2.5 pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                        {/* Position selector */}
+                        <div>
+                          <label className="text-[11px] font-semibold text-amber-900 dark:text-amber-200 block mb-1">
+                            Borde de la pantalla:
+                          </label>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {[
+                              { id: 'left', label: 'Izquierda', icon: '⬅️' },
+                              { id: 'right', label: 'Derecha', icon: '➡️' },
+                              { id: 'top', label: 'Arriba', icon: '⬆️' },
+                              { id: 'bottom', label: 'Abajo', icon: '⬇️' }
+                            ].map((pos) => {
+                              const isSelected = (formData.dockPosition || 'right') === pos.id;
+                              return (
+                                <button
+                                  key={pos.id}
+                                  type="button"
+                                  onClick={() => setFormData({ ...formData, dockPosition: pos.id as any })}
+                                  className={`py-1.5 px-2 rounded-md border text-center transition-all text-xs font-medium flex flex-col items-center gap-0.5 ${
+                                    isSelected
+                                      ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                                      : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-amber-100/50'
+                                  }`}
+                                >
+                                  <span>{pos.icon}</span>
+                                  <span className="text-[10px]">{pos.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Show / Hide Titles toggle */}
+                        <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                          <div>
+                            <span className="font-medium text-[11px] text-amber-950 dark:text-amber-200 block">
+                              Mostrar nombres de notas en los separadores
+                            </span>
+                            <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                              {formData.dockShowTitles !== false
+                                ? 'Nombre visible en cada pestaña'
+                                : 'Modo discreto / compacto (solo pestaña de color)'}
+                            </span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={formData.dockShowTitles !== false}
+                            onChange={(e) => setFormData({ ...formData, dockShowTitles: e.target.checked })}
+                            className="w-4 h-4 rounded text-amber-600"
+                          />
+                        </div>
+
+                        {/* Always on top toggle for dock */}
+                        <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
+                          <div>
+                            <span className="font-medium text-[11px] text-amber-950 dark:text-amber-200 block">
+                              Separadores siempre visibles (Always on Top)
+                            </span>
+                            <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                              {formData.dockAlwaysOnTop !== false
+                                ? 'Siempre por encima de todas las aplicaciones'
+                                : 'Permite que otras ventanas cubran los separadores'}
+                            </span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={formData.dockAlwaysOnTop !== false}
+                            onChange={(e) => setFormData({ ...formData, dockAlwaysOnTop: e.target.checked })}
+                            className="w-4 h-4 rounded text-amber-600"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-3 bg-blue-50 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-900 space-y-1.5">

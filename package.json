@@ -48,11 +48,13 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "StickyFlow",
       "artifactName": "StickyFlow-Setup-${version}.${ext}",
-      "uninstallDisplayName": "StickyFlow"
+      "uninstallDisplayName": "StickyFlow",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh"
     },
     "portable": {
       "artifactName": "StickyFlow-Portable.exe"

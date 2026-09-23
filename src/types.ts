@@ -60,6 +60,13 @@ export interface AppSettings {
   defaultColor: NoteColor;
   opacity: number;
   notesFolderPath?: string;
+
+  // Notebook Separators Dock (Separadores de Cuaderno)
+  dockPosition?: 'left' | 'right' | 'top' | 'bottom';
+  dockShowTitles?: boolean;
+  dockEnabled?: boolean;
+  dockAlwaysOnTop?: boolean;
+  dockedNoteIds?: string[];
 }
 
 export interface ElectronAPI {
@@ -89,6 +96,20 @@ export interface ElectronAPI {
   onMiniStickyStatusChanged: (callback: (data: { noteId: string; isOpen: boolean }) => void) => void;
   onNoteUpdated: (callback: (note: Note) => void) => void;
   onSelectNote: (callback: (noteId: string) => void) => void;
+
+  // Notebook Separators Dock (Dock de Separadores de Cuaderno)
+  setDockMouseIgnore?: (ignore: boolean) => Promise<boolean>;
+  setDockPosition?: (pos: 'left' | 'right' | 'top' | 'bottom') => Promise<boolean>;
+  setDockAlwaysOnTop?: (val: boolean) => Promise<boolean>;
+  openNoteInMain?: (noteId: string) => Promise<boolean>;
+  openNoteWindow?: (noteId: string) => Promise<boolean>;
+  toggleDockPin?: (noteId: string) => Promise<string[]>;
+  getDockedNotes?: () => Promise<string[]>;
+  quitApp?: () => Promise<void>;
+  onNotesUpdated?: (callback: (notes: Note[]) => void) => void;
+  onDockNotesUpdated?: (callback: (notes: Note[]) => void) => void;
+  onDockSettingsUpdated?: (callback: (settings: AppSettings) => void) => void;
+  onDockedIdsChanged?: (callback: (dockedIds: string[]) => void) => void;
 }
 
 declare global {

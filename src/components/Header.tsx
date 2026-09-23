@@ -15,7 +15,8 @@ import {
   Check,
   Bot,
   Headphones,
-  StickyNote
+  StickyNote,
+  ExternalLink
 } from 'lucide-react';
 import { NoteColor } from '../types';
 
@@ -38,6 +39,7 @@ interface HeaderProps {
   onOpenFolder: () => void;
   onToggleMiniStick?: () => void;
   isMiniPinned?: boolean;
+  onOpenInNewWindow?: () => void;
 }
 
 const COLORS: { id: NoteColor; bg: string; label: string }[] = [
@@ -67,7 +69,8 @@ export const Header: React.FC<HeaderProps> = ({
   onCopyForClaude,
   onOpenFolder,
   onToggleMiniStick,
-  isMiniPinned
+  isMiniPinned,
+  onOpenInNewWindow
 }) => {
   const [showPalette, setShowPalette] = useState(false);
   const [copiedMd, setCopiedMd] = useState(false);
@@ -115,7 +118,11 @@ export const Header: React.FC<HeaderProps> = ({
         {onToggleMiniStick && (
           <button
             onClick={onToggleMiniStick}
-            title={isMiniPinned ? 'Cerrar mini stick flotante de pantalla' : 'Anclar esta nota a la pantalla como mini stick flotante (Recordatorio)'}
+            title={
+              isMiniPinned
+                ? 'Desanclar del dock de separadores de pantalla'
+                : 'Fijar como separador de cuaderno en pantalla (Dock)'
+            }
             className={`p-1 rounded-md transition-all active:scale-95 ${
               isMiniPinned
                 ? 'bg-amber-500/25 text-amber-800 dark:text-amber-200 font-bold ring-1 ring-amber-500/50'
@@ -232,6 +239,17 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Settings size={15} />
         </button>
+
+        {/* Open in New Window Button */}
+        {onOpenInNewWindow && (
+          <button
+            onClick={onOpenInNewWindow}
+            title="Abrir esta nota en una ventana independiente"
+            className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/15 transition-all text-current opacity-75 hover:opacity-100"
+          >
+            <ExternalLink size={15} />
+          </button>
+        )}
 
         {/* Sidebar Toggle */}
         <button

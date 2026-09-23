@@ -1,4 +1,8 @@
 @echo off
-title Iniciando StickyFlow
-start "" wscript.exe "%~dp0StickyFlow-Silencioso.vbs"
-exit
+title StickyFlow (Modo Desarrollo)
+cd /d "%~dp0"
+echo ====================================================
+echo   Iniciando StickyFlow en Modo Desarrollo (Vite + Electron)
+echo ====================================================
+echo.
+npm start

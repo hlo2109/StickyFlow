@@ -437,7 +437,7 @@ export const AiModal: React.FC<AiModalProps> = ({
 
               <button
                 onClick={() => {
-                  onCreateNewNoteFromAi(generatedTitle || lastAction || 'Nota Asistida por IA', aiResult);
+                  onCreateNewNoteFromAi(suggestedTitle || lastAction || 'Nota Asistida por IA', aiResult);
                   onClose();
                 }}
                 className="px-3 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold flex items-center gap-1 shadow-sm transition-colors"

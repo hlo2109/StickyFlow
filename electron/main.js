@@ -5,6 +5,8 @@ const fs = require('fs');
 let mainWindow = null;
 let isAlwaysOnTop = true;
 const miniStickyWindows = new Map(); // noteId -> BrowserWindow
+const noteWindows = new Map(); // noteId -> BrowserWindow (Multi-window support for notes)
+let dockWindow = null;
 
 const COLOR_HEX = {
   yellow: '#fef08a',
@@ -56,7 +58,7 @@ function createMiniStickyWindow(note) {
     frame: false,
     show: false,
     alwaysOnTop: true,
-    skipTaskbar: false,
+    skipTaskbar: true, // Never clutter Windows taskbar
     hasShadow: true,
     roundedCorners: true,
     backgroundColor: getHexForColor(note.color),
@@ -156,6 +158,216 @@ const getSettingsFilePath = () => {
     return path.join(app.getPath('temp'), 'stickyflow_settings.json');
   }
 };
+
+const loadSettingsDirect = () => {
+  try {
+    const filePath = getSettingsFilePath();
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    }
+  } catch (err) {
+    console.error('Error loading settings direct:', err);
+  }
+  return {
+    dockPosition: 'right',
+    dockShowTitles: true,
+    dockEnabled: true,
+    dockedNoteIds: []
+  };
+};
+
+function getDockBounds(position = 'right') {
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { x: workX, y: workY, width: screenWidth, height: screenHeight } = primaryDisplay.workArea;
+
+  const DOCK_WIDTH = 220;  // Slim & lightweight for tabs only (no cluttering hover window)
+  const DOCK_HEIGHT = 80;  // Slim & lightweight for horizontal tabs
+
+  if (position === 'left') {
+    return {
+      x: workX,
+      y: workY,
+      width: DOCK_WIDTH,
+      height: screenHeight
+    };
+  } else if (position === 'top') {
+    return {
+      x: workX,
+      y: workY,
+      width: screenWidth,
+      height: DOCK_HEIGHT
+    };
+  } else if (position === 'bottom') {
+    return {
+      x: workX,
+      y: workY + screenHeight - DOCK_HEIGHT,
+      width: screenWidth,
+      height: DOCK_HEIGHT
+    };
+  } else {
+    // 'right' (default)
+    return {
+      x: workX + screenWidth - DOCK_WIDTH,
+      y: workY,
+      width: DOCK_WIDTH,
+      height: screenHeight
+    };
+  }
+}
+
+function openNoteWindow(noteId) {
+  if (!noteId) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      return mainWindow;
+    }
+    createWindow();
+    return mainWindow;
+  }
+
+  // If already open in an existing note window, bring to front!
+  if (noteWindows.has(noteId)) {
+    const existing = noteWindows.get(noteId);
+    if (existing && !existing.isDestroyed()) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return existing;
+    }
+  }
+
+  // If mainWindow is already open and showing this note, bring it to front
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    // We can also let the user have multiple independent windows
+  }
+
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+  const count = noteWindows.size;
+  const offsetX = (count % 8) * 35;
+  const offsetY = (count % 8) * 35;
+  const defaultX = Math.max(30, Math.min(screenWidth - 480, 100 + offsetX));
+  const defaultY = Math.max(30, Math.min(screenHeight - 600, 70 + offsetY));
+
+  const noteWin = new BrowserWindow({
+    width: 440,
+    height: 560,
+    minWidth: 360,
+    minHeight: 380,
+    maxWidth: 950,
+    maxHeight: 900,
+    x: defaultX,
+    y: defaultY,
+    frame: false,
+    show: false,
+    alwaysOnTop: isAlwaysOnTop,
+    skipTaskbar: true, // Keep Windows taskbar 100% clean!
+    hasShadow: true,
+    roundedCorners: true,
+    backgroundColor: '#fef08a',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false
+    }
+  });
+
+  noteWin.setAlwaysOnTop(isAlwaysOnTop, 'floating', 1);
+
+  const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
+  if (isDev) {
+    noteWin.loadURL(`http://localhost:5173/?noteId=${encodeURIComponent(noteId)}#noteId=${encodeURIComponent(noteId)}`);
+  } else {
+    noteWin.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { noteId },
+      hash: `noteId=${encodeURIComponent(noteId)}`
+    });
+  }
+
+  noteWin.once('ready-to-show', () => {
+    noteWin.show();
+    noteWin.focus();
+  });
+
+  setTimeout(() => {
+    if (noteWin && !noteWin.isVisible() && !noteWin.isDestroyed()) {
+      noteWin.show();
+    }
+  }, 1000);
+
+  noteWin.on('closed', () => {
+    noteWindows.delete(noteId);
+  });
+
+  noteWindows.set(noteId, noteWin);
+  return noteWin;
+}
+
+function createDockWindow() {
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    return;
+  }
+
+  const settings = loadSettingsDirect();
+  if (settings.dockEnabled === false) return;
+
+  const position = settings.dockPosition || 'right';
+  const bounds = getDockBounds(position);
+
+  dockWindow = new BrowserWindow({
+    ...bounds,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true, // Never creates an icon in Windows taskbar!
+    hasShadow: false,  // Shadows are handled in CSS so empty transparent areas don't have a shadow box
+    resizable: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false
+    }
+  });
+
+  const isDockTop = settings.dockAlwaysOnTop !== false;
+  dockWindow.setAlwaysOnTop(isDockTop, 'floating', 2);
+  dockWindow.setIgnoreMouseEvents(true, { forward: true });
+
+  const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
+  if (isDev) {
+    dockWindow.loadURL('http://localhost:5173/?mode=dock#mode=dock');
+  } else {
+    dockWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { mode: 'dock' },
+      hash: 'mode=dock'
+    });
+  }
+
+  dockWindow.once('ready-to-show', () => {
+    dockWindow.show();
+  });
+
+  setTimeout(() => {
+    if (dockWindow && !dockWindow.isVisible() && !dockWindow.isDestroyed()) {
+      dockWindow.show();
+    }
+  }, 1000);
+
+  dockWindow.on('closed', () => {
+    dockWindow = null;
+  });
+}
 
 // Ensure Markdown export directory exists
 const ensureNotesDir = () => {
@@ -334,59 +546,95 @@ if (!gotTheLock) {
       console.error('Error during ensureNotesDir in whenReady:', e);
     }
     createWindow();
+    createDockWindow();
+
+    const { screen } = require('electron');
+    screen.on('display-metrics-changed', () => {
+      if (dockWindow && !dockWindow.isDestroyed()) {
+        const settings = loadSettingsDirect();
+        const bounds = getDockBounds(settings.dockPosition || 'right');
+        dockWindow.setBounds(bounds);
+      }
+    });
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+        createDockWindow();
+      }
     });
   });
 }
 
 app.on('window-all-closed', () => {
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    return; // Keep dock permanent on screen
+  }
   app.quit();
   app.exit(0);
 });
 
 // IPC Handlers
-ipcMain.handle('window:minimize', () => {
-  if (mainWindow) mainWindow.minimize();
-});
-
-ipcMain.handle('window:close', () => {
-  if (miniStickyWindows.size > 0 && mainWindow) {
-    mainWindow.hide();
-  } else {
-    if (mainWindow) {
-      mainWindow.destroy();
-    }
-    app.quit();
-    app.exit(0);
+ipcMain.handle('window:minimize', (event) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (senderWin && !senderWin.isDestroyed()) {
+    senderWin.minimize();
   }
 });
 
-ipcMain.handle('window:toggleAlwaysOnTop', () => {
-  if (mainWindow) {
-    isAlwaysOnTop = !isAlwaysOnTop;
-    mainWindow.setAlwaysOnTop(isAlwaysOnTop, 'floating', 1);
-    mainWindow.webContents.send('always-on-top-changed', isAlwaysOnTop);
-    return isAlwaysOnTop;
+ipcMain.handle('window:close', (event) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender);
+  if (senderWin) {
+    if (senderWin === mainWindow) {
+      if (dockWindow && !dockWindow.isDestroyed()) {
+        mainWindow.hide();
+      } else if (miniStickyWindows.size > 0 || noteWindows.size > 0) {
+        mainWindow.hide();
+      } else {
+        mainWindow.destroy();
+        if (dockWindow && !dockWindow.isDestroyed()) {
+          dockWindow.destroy();
+        }
+        app.quit();
+        app.exit(0);
+      }
+    } else {
+      // It's an independent noteWindow or miniStickyWindow
+      senderWin.close();
+    }
+  } else if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+});
+
+ipcMain.handle('window:toggleAlwaysOnTop', (event) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (senderWin && !senderWin.isDestroyed()) {
+    const nextState = !senderWin.isAlwaysOnTop();
+    senderWin.setAlwaysOnTop(nextState, 'floating', 1);
+    senderWin.webContents.send('always-on-top-changed', nextState);
+    return nextState;
   }
   return false;
 });
 
-ipcMain.handle('window:getAlwaysOnTop', () => {
-  return isAlwaysOnTop;
+ipcMain.handle('window:getAlwaysOnTop', (event) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  return (senderWin && !senderWin.isDestroyed()) ? senderWin.isAlwaysOnTop() : isAlwaysOnTop;
 });
 
-ipcMain.handle('window:setOpacity', (_event, opacity) => {
-  if (mainWindow) {
-    mainWindow.setOpacity(Math.max(0.3, Math.min(1.0, opacity)));
+ipcMain.handle('window:setOpacity', (event, opacity) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (senderWin && !senderWin.isDestroyed()) {
+    senderWin.setOpacity(Math.max(0.3, Math.min(1.0, opacity)));
   }
 });
 
-ipcMain.handle('window:resize', (_event, { width, height }) => {
-  if (mainWindow) {
-    const currentBounds = mainWindow.getBounds();
-    mainWindow.setBounds({
+ipcMain.handle('window:resize', (event, { width, height }) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  if (senderWin && !senderWin.isDestroyed()) {
+    const currentBounds = senderWin.getBounds();
+    senderWin.setBounds({
       x: currentBounds.x,
       y: currentBounds.y,
       width: width || currentBounds.width,
@@ -414,7 +662,7 @@ ipcMain.handle('notes:save', (_event, notes) => {
     const filePath = getDataFilePath();
     fs.writeFileSync(filePath, JSON.stringify(notes, null, 2), 'utf-8');
 
-    // Also mirror to local markdown files and broadcast to open mini windows
+    // Also mirror to local markdown files and broadcast to all open note windows and dock
     if (Array.isArray(notes)) {
       notes.forEach(note => {
         syncNoteToMarkdown(note);
@@ -425,6 +673,16 @@ ipcMain.handle('notes:save', (_event, notes) => {
           }
         }
       });
+    }
+
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed() && win.webContents !== _event.sender) {
+        win.webContents.send('notes:updated', notes);
+      }
+    });
+
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      dockWindow.webContents.send('dock:notes-updated', notes);
     }
     return { success: true };
   } catch (err) {
@@ -448,7 +706,11 @@ ipcMain.handle('settings:load', () => {
       activeAiProvider: 'huggingface',
       alwaysOnTop: true,
       defaultColor: 'yellow',
-      opacity: 0.98
+      opacity: 0.98,
+      dockPosition: 'right',
+      dockShowTitles: true,
+      dockEnabled: true,
+      dockedNoteIds: []
     };
   } catch (err) {
     console.error('Error loading settings:', err);
@@ -466,6 +728,23 @@ ipcMain.handle('settings:save', (_event, settings) => {
     }
     if (typeof settings.opacity === 'number' && mainWindow) {
       mainWindow.setOpacity(settings.opacity);
+    }
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      dockWindow.webContents.send('dock:settings-updated', settings);
+      if (settings.dockPosition) {
+        const bounds = getDockBounds(settings.dockPosition);
+        dockWindow.setBounds(bounds);
+      }
+      if (typeof settings.dockAlwaysOnTop === 'boolean') {
+        dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'floating', 2);
+      }
+      if (settings.dockEnabled === false) {
+        dockWindow.hide();
+      } else if (!dockWindow.isVisible()) {
+        dockWindow.show();
+      }
+    } else if (settings.dockEnabled !== false) {
+      createDockWindow();
     }
     return { success: true };
   } catch (err) {
@@ -550,4 +829,137 @@ ipcMain.handle('sticky:expand', (_event, noteId) => {
   mainWindow.webContents.send('select-note', noteId);
   return true;
 });
+
+// Notebook Separators Dock IPC Handlers
+ipcMain.handle('dock:set-ignore-mouse', (_event, ignore) => {
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    dockWindow.setIgnoreMouseEvents(ignore, { forward: true });
+  }
+  return true;
+});
+
+ipcMain.handle('dock:set-position', (_event, position) => {
+  const settings = loadSettingsDirect();
+  settings.dockPosition = position;
+  try {
+    const sPath = getSettingsFilePath();
+    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving settings dockPosition:', err);
+  }
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    const bounds = getDockBounds(position);
+    dockWindow.setBounds(bounds);
+    dockWindow.webContents.send('dock:settings-updated', settings);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('dock:settings-updated', settings);
+  }
+  return true;
+});
+
+ipcMain.handle('dock:open-note-window', (_event, noteId) => {
+  openNoteWindow(noteId);
+  return true;
+});
+
+ipcMain.handle('dock:open-note', (_event, noteId) => {
+  openNoteWindow(noteId);
+  return true;
+});
+
+ipcMain.handle('dock:get-docked-ids', () => {
+  const settings = loadSettingsDirect();
+  if (Array.isArray(settings.dockedNoteIds) && settings.dockedNoteIds.length > 0) {
+    return settings.dockedNoteIds;
+  }
+  try {
+    const notesPath = getDataFilePath();
+    if (fs.existsSync(notesPath)) {
+      const notes = JSON.parse(fs.readFileSync(notesPath, 'utf-8'));
+      if (Array.isArray(notes) && notes.length > 0) {
+        const pinnedIds = notes.filter(n => n.isPinned).map(n => n.id);
+        const resultIds = pinnedIds.length > 0 ? pinnedIds : notes.map(n => n.id);
+        settings.dockedNoteIds = resultIds;
+        try {
+          fs.writeFileSync(getSettingsFilePath(), JSON.stringify(settings, null, 2), 'utf-8');
+        } catch {}
+        return resultIds;
+      }
+    }
+  } catch {}
+  return [];
+});
+
+ipcMain.handle('dock:toggle-pin', (_event, noteId) => {
+  const settings = loadSettingsDirect();
+  let dockedIds = Array.isArray(settings.dockedNoteIds) ? [...settings.dockedNoteIds] : null;
+
+  if (!dockedIds) {
+    try {
+      const notesPath = getDataFilePath();
+      if (fs.existsSync(notesPath)) {
+        const notes = JSON.parse(fs.readFileSync(notesPath, 'utf-8'));
+        dockedIds = notes.filter(n => n.isPinned).map(n => n.id);
+      }
+    } catch {}
+    dockedIds = dockedIds || [];
+  }
+
+  if (dockedIds.includes(noteId)) {
+    dockedIds = dockedIds.filter(id => id !== noteId);
+  } else {
+    dockedIds.push(noteId);
+  }
+
+  settings.dockedNoteIds = dockedIds;
+  try {
+    const sPath = getSettingsFilePath();
+    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving dockedNoteIds:', err);
+  }
+
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    dockWindow.webContents.send('dock:ids-changed', dockedIds);
+    dockWindow.webContents.send('dock:settings-updated', settings);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('dock:ids-changed', dockedIds);
+    mainWindow.webContents.send('dock:settings-updated', settings);
+  }
+
+  return dockedIds;
+});
+
+ipcMain.handle('dock:set-always-on-top', (_event, value) => {
+  const settings = loadSettingsDirect();
+  settings.dockAlwaysOnTop = Boolean(value);
+  try {
+    const sPath = getSettingsFilePath();
+    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error saving settings dockAlwaysOnTop:', err);
+  }
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'floating', 2);
+    dockWindow.webContents.send('dock:settings-updated', settings);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('dock:settings-updated', settings);
+  }
+  return settings.dockAlwaysOnTop;
+});
+
+ipcMain.handle('app:quit', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+  }
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    dockWindow.destroy();
+  }
+  app.quit();
+  app.exit(0);
+});
+
 

@@ -163,7 +163,7 @@ export const Editor: React.FC<EditorProps> = ({
 
       if (normNote !== normCurrent) {
         isSwitchingRef.current = true;
-        editor.commands.setContent(note.content || '', false);
+        editor.commands.setContent(note.content || '', { emitUpdate: false });
         const timer = setTimeout(() => {
           isSwitchingRef.current = false;
         }, 80);
