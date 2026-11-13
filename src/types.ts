@@ -100,6 +100,7 @@ export interface AppSettings {
   defaultColor: NoteColor;
   opacity: number;
   notesFolderPath?: string;
+  showTrayIcon?: boolean; // Icono en la bandeja del sistema con acceso rápido (por defecto sí)
   startDockOnly?: boolean; // When PC/app starts, only show the small notebook dock tabs (default true)
 
   // Cloud Backup & Storage Sync
@@ -180,7 +181,7 @@ export interface ElectronAPI {
 
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow?: () => Promise<void>;
-  openMeetingWindow?: (noteId?: string) => Promise<void>;
+  openMeetingWindow?: (noteId?: string, view?: 'meeting' | 'interview' | 'voicenote') => Promise<void>;
 
   // Mini Stickies (multi-window floating desktop widgets)
   openMiniSticky: (note: Note) => Promise<void>;
@@ -213,6 +214,7 @@ export interface ElectronAPI {
 
   // Meeting window target note update
   onMeetingSetNoteId?: (callback: (noteId: string) => void) => void;
+  onMeetingSetView?: (callback: (view: 'meeting' | 'interview' | 'voicenote') => void) => void;
 }
 
 declare global {

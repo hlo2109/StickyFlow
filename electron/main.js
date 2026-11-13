@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const secureSettings = require('./secureSettings');
+const trayModule = require('./tray');
 
 let mainWindow = null;
 let isAlwaysOnTop = true;
@@ -699,13 +700,19 @@ function openSettingsWindow() {
   return settingsWindow;
 }
 
-function openMeetingWindow(noteId) {
+function openMeetingWindow(noteId, view) {
+  // Solo vistas conocidas: 'meeting' | 'interview' | 'voicenote'
+  const safeView = trayModule.VIEWS.includes(view) ? view : 'meeting';
+
   if (meetingWindow && !meetingWindow.isDestroyed()) {
     if (meetingWindow.isMinimized()) meetingWindow.restore();
     meetingWindow.show();
     meetingWindow.focus();
     if (noteId) {
       meetingWindow.webContents.send('meeting:set-note-id', noteId);
+    }
+    if (view) {
+      meetingWindow.webContents.send('meeting:set-view', safeView);
     }
     return meetingWindow;
   }
@@ -748,9 +755,9 @@ function openMeetingWindow(noteId) {
   });
 
   const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
-  const query = { mode: 'meeting', noteId: noteId || '' };
+  const query = { mode: 'meeting', noteId: noteId || '', view: safeView };
   if (isDev) {
-    meetingWindow.loadURL(`http://localhost:5173/?mode=meeting&noteId=${encodeURIComponent(noteId || '')}#mode=meeting`);
+    meetingWindow.loadURL(`http://localhost:5173/?mode=meeting&noteId=${encodeURIComponent(noteId || '')}&view=${safeView}#mode=meeting`);
   } else {
     meetingWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
       query,
@@ -768,6 +775,37 @@ function openMeetingWindow(noteId) {
   });
 
   return meetingWindow;
+}
+
+// ---- Icono de la bandeja del sistema (acceso rápido) ----
+function trayHandlers() {
+  return {
+    openMain: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        createWindow();
+      }
+    },
+    openView: (view) => openMeetingWindow('', view),
+    openSettings: () => openSettingsWindow(),
+    quit: () => {
+      trayModule.hideTray();
+      app.quit();
+      app.exit(0);
+    }
+  };
+}
+
+/** Muestra u oculta el icono según el ajuste (por defecto visible). */
+function applyTray(settings) {
+  if (settings && settings.showTrayIcon === false) {
+    trayModule.hideTray();
+  } else {
+    trayModule.showTray(trayHandlers());
+  }
 }
 
 function createDockWindow() {
@@ -1312,6 +1350,9 @@ if (!gotTheLock) {
       }
     });
 
+    applyTray(loadSettingsDirect());
+    app.on('before-quit', () => trayModule.hideTray());
+
     app.on('activate', () => {
       if (!dockWindow || dockWindow.isDestroyed()) {
         createDockWindow();
@@ -1539,8 +1580,8 @@ ipcMain.handle('window:open-settings', () => {
   return true;
 });
 
-ipcMain.handle('window:open-meeting', (_event, noteId) => {
-  openMeetingWindow(noteId);
+ipcMain.handle('window:open-meeting', (_event, noteId, view) => {
+  openMeetingWindow(noteId, view);
   return true;
 });
 
@@ -1785,6 +1826,7 @@ ipcMain.handle('settings:save', (_event, settings) => {
   try {
     const filePath = getSettingsFilePath();
     secureSettings.writeSettingsFile(filePath, settings);
+    applyTray(settings);
     if (typeof settings.alwaysOnTop === 'boolean' && mainWindow) {
       isAlwaysOnTop = settings.alwaysOnTop;
       mainWindow.setAlwaysOnTop(isAlwaysOnTop, 'floating', 1);

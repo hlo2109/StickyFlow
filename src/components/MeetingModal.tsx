@@ -36,6 +36,8 @@ interface MeetingModalProps {
   onAddBitacoraLog: (action: any, summary: string) => void;
   /** Si se pasa, se muestra un botón para cambiar al modo Entrevista (traducción en vivo) */
   onOpenInterview?: () => void;
+  /** Si se pasa, se muestra un botón para cambiar a «Nota de voz» */
+  onOpenVoiceNote?: () => void;
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
@@ -45,7 +47,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   settings,
   onInsertMeetingNote,
   onAddBitacoraLog,
-  onOpenInterview
+  onOpenInterview,
+  onOpenVoiceNote
 }) => {
   const [isPinned, setIsPinned] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -570,6 +573,21 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             {isAnalyzing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             <span>Generar Minuta con IA</span>
           </button>
+
+          {onOpenVoiceNote && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isRecording) handleStopMeeting();
+                onOpenVoiceNote();
+              }}
+              title="Nota de voz: manda un audio con tu voz clonada por WhatsApp y más"
+              className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Mic size={14} />
+              <span>Nota de voz</span>
+            </button>
+          )}
 
           {onOpenInterview && (
             <button

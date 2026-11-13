@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow: () => ipcRenderer.invoke('window:open-settings'),
-  openMeetingWindow: (noteId) => ipcRenderer.invoke('window:open-meeting', noteId),
+  openMeetingWindow: (noteId, view) => ipcRenderer.invoke('window:open-meeting', noteId, view),
 
   // File system & Folder integration for Claude / User
   openNotesFolder: () => ipcRenderer.invoke('notes:openFolder'),
@@ -95,6 +95,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Meeting window target note update
+  onMeetingSetView: (callback) => {
+    ipcRenderer.on('meeting:set-view', (_event, view) => callback(view));
+  },
   onMeetingSetNoteId: (callback) => {
     ipcRenderer.on('meeting:set-note-id', (_event, noteId) => callback(noteId));
   }

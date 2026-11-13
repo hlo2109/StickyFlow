@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MeetingModal } from './MeetingModal';
 import { InterviewPanel } from '../features/interview/InterviewPanel';
+import { VoiceNotePanel } from '../features/voicenote/VoiceNotePanel';
 import { Note, AppSettings, BitacoraEntry } from '../types';
 import { DEFAULT_SETTINGS } from '../defaultSettings';
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdown';
@@ -14,7 +15,13 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
   const [activeNoteId, setActiveNoteId] = useState<string>(noteId || '');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [view, setView] = useState<'meeting' | 'interview'>('meeting');
+  type View = 'meeting' | 'interview' | 'voicenote';
+  const isView = (v: unknown): v is View => v === 'meeting' || v === 'interview' || v === 'voicenote';
+  // La vista inicial viene en la URL (la bandeja del sistema abre directo en Entrevista o Nota de voz).
+  const [view, setView] = useState<View>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('view');
+    return isView(fromUrl) ? fromUrl : 'meeting';
+  });
 
   useEffect(() => {
     const init = async () => {
@@ -46,6 +53,12 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
     if (window.electronAPI?.onNotesUpdated) {
       window.electronAPI.onNotesUpdated((updated) => {
         if (Array.isArray(updated)) setNotes(updated);
+      });
+    }
+
+    if (window.electronAPI?.onMeetingSetView) {
+      window.electronAPI.onMeetingSetView((next) => {
+        if (isView(next)) setView(next);
       });
     }
 
@@ -160,7 +173,19 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
   return (
     <div className="h-screen w-screen bg-slate-900 text-slate-100 flex flex-col overflow-hidden select-none">
       {view === 'interview' ? (
-        <InterviewPanel settings={settings} onBack={() => setView('meeting')} onClose={handleClose} />
+        <InterviewPanel
+          settings={settings}
+          onBack={() => setView('meeting')}
+          onOpenVoiceNote={() => setView('voicenote')}
+          onClose={handleClose}
+        />
+      ) : view === 'voicenote' ? (
+        <VoiceNotePanel
+          settings={settings}
+          onShowMeeting={() => setView('meeting')}
+          onShowInterview={() => setView('interview')}
+          onClose={handleClose}
+        />
       ) : (
         <MeetingModal
           isOpen={true}
@@ -170,6 +195,7 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
           onInsertMeetingNote={handleInsertMeetingNote}
           onAddBitacoraLog={handleAddBitacoraLog}
           onOpenInterview={() => setView('interview')}
+          onOpenVoiceNote={() => setView('voicenote')}
         />
       )}
     </div>

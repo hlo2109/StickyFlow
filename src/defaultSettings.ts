@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultColor: 'yellow',
   opacity: 0.98,
   startDockOnly: true,
+  showTrayIcon: true,
   dockPosition: 'right',
   dockShowTitles: true,
   dockEnabled: true,

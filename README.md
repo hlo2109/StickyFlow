@@ -236,6 +236,13 @@ Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis), elige «CABLE Input» 
 
 ---
 
+## 🎙️ Nota de Voz y acceso rápido
+
+- **Icono en la bandeja del sistema** (junto al reloj): acceso directo a *Reunión*, *Entrevista*, *Nota de voz* y *Ajustes*. Se puede ocultar en Ajustes → Ventana & General.
+- **Nota de voz:** dicta o escribe un mensaje, tradúcelo si hace falta, escúchalo en tus auriculares y envíalo con tu propia voz por el micrófono virtual mientras grabas en WhatsApp, Telegram, Teams… También puedes guardarlo como MP3.
+
+---
+
 ## 🔒 Privacidad y Seguridad
 
 - **Tus claves no salen de tu equipo:** se cifran con DPAPI de Windows y se excluyen de respaldos y exportaciones (que pueden terminar en OneDrive o Google Drive). Restaurar un respaldo nunca pisa tus claves.

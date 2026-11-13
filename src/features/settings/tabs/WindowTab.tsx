@@ -36,6 +36,21 @@ export const WindowTab: React.FC<SettingsTabProps> = ({ formData, setFormData, o
 
         <div className="flex items-center justify-between">
           <div>
+            <span className="font-semibold block text-slate-700 dark:text-slate-200">Icono en la bandeja del sistema</span>
+            <span className="text-[10px] text-slate-500">
+              Acceso rápido junto al reloj de Windows: Reunión, Entrevista, Nota de voz y Ajustes con un clic
+            </span>
+          </div>
+          <input
+            type="checkbox"
+            checked={formData.showTrayIcon !== false}
+            onChange={(e) => setFormData({ ...formData, showTrayIcon: e.target.checked })}
+            className="w-4 h-4 rounded text-blue-600 accent-blue-600 cursor-pointer shrink-0"
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
             <span className="font-semibold block text-slate-700 dark:text-slate-200">Siempre Flotante por Defecto</span>
             <span className="text-[10px] text-slate-500">Fija la ventana por encima de todas las aplicaciones</span>
           </div>

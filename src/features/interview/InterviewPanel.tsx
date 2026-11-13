@@ -12,7 +12,8 @@ import {
   Circle,
   Megaphone,
   Loader2,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Mic
 } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { getAudioDevices, AudioDeviceInfo } from '../../utils/audioService';
@@ -26,6 +27,7 @@ import { findPairedInput, isVirtualOutputLabel } from './services/virtualMic';
 interface InterviewPanelProps {
   settings: AppSettings;
   onBack: () => void;
+  onOpenVoiceNote?: () => void;
   onClose: () => void;
 }
 
@@ -111,7 +113,7 @@ const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (i
   );
 };
 
-export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack, onClose }) => {
+export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack, onOpenVoiceNote, onClose }) => {
   const [mics, setMics] = useState<AudioDeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<AudioDeviceInfo[]>([]);
   const [micId, setMicId] = useState('');
@@ -235,6 +237,16 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           >
             <ArrowLeft size={13} /> Reunión
           </button>
+          {onOpenVoiceNote && (
+            <button
+              type="button"
+              onClick={onOpenVoiceNote}
+              title="Nota de voz con tu voz clonada (WhatsApp y más)"
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Mic size={13} /> Nota de voz
+            </button>
+          )}
           <button
             type="button"
             onClick={openSettings}
