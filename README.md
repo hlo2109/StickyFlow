@@ -218,10 +218,27 @@ Para utilizar las funciones de Inteligencia Artificial:
 
 ---
 
+## 🌐 Modo Entrevista (traducción en vivo)
+
+Pensado para llamadas o entrevistas en otro idioma. Se abre desde **Modo Reunión → Entrevista**.
+
+- **Lo que dicen ellos** (audio del sistema) aparece traducido a tu idioma, con el original debajo.
+- **Lo que dices tú** se transcribe, se traduce y sale con **tu propia voz clonada** (ElevenLabs) por un micrófono virtual.
+- Modo automático o manual (revisas la traducción y la dices con 🔊), botón **Silenciar** y botón para **avisar con tu voz que usas traducción en tiempo real**.
+- Sin ElevenLabs o sin micrófono virtual funciona igual en modo solo subtítulos.
+
+**Configuración:** Ajustes → **Entrevista** (claves de Deepgram y ElevenLabs, tu voz, idiomas y contexto técnico).
+Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis), elige «CABLE Input» como salida en la pantalla de Entrevista y «CABLE Output» como micrófono en Zoom/Meet/Teams.
+
+> Cierra otros sonidos (música, TV) durante la llamada: el modo reunión escucha todo lo que suena en el equipo.
+
+---
+
 ## 🔒 Privacidad y Seguridad
 
 - **Tus claves no salen de tu equipo:** se cifran con DPAPI de Windows y se excluyen de respaldos y exportaciones (que pueden terminar en OneDrive o Google Drive). Restaurar un respaldo nunca pisa tus claves.
 - **Enmascarado antes de enviar a la IA:** claves de API, tokens, JWT, llaves privadas y contraseñas se reemplazan por `[PROTEGIDO:…]`.
+- **`webSecurity` activo** en todas las ventanas (las APIs de IA funcionan con CORS normal).
 - **Permisos mínimos:** solo micrófono, audio del sistema y portapapeles, y solo para las páginas de la propia app.
 - **Política de contenido estricta (CSP)** en la versión compilada.
 - **Tus notas nunca se suben a Git:** `mis_notas/`, `settings.json` y los logs están en `.gitignore`.
@@ -238,6 +255,7 @@ src/
   features/
     ai/              Capa de IA: proveedores (Claude, Hugging Face), prompts, privacidad, radar
     meeting/         Reuniones: captura en dos pistas con detección de voz y transcripción
+    interview/       Modo Entrevista: traducción en vivo, subtítulos y tu voz clonada
     settings/        Ajustes: un archivo por pestaña
   defaultSettings.ts Ajustes por defecto (única fuente de verdad)
   utils/             Utilidades (Markdown, voz TTS, dispositivos de audio)

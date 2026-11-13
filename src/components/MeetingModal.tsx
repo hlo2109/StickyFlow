@@ -18,7 +18,8 @@ import {
   AlertCircle,
   Plus,
   CheckSquare,
-  Mic
+  Mic,
+  Languages
 } from 'lucide-react';
 import { Note, AppSettings, MeetingDoubt } from '../types';
 import { getAudioDevices, AudioDeviceInfo } from '../utils/audioService';
@@ -33,6 +34,8 @@ interface MeetingModalProps {
   settings: AppSettings;
   onInsertMeetingNote: (title: string, markdown: string, asNewNote: boolean) => void;
   onAddBitacoraLog: (action: any, summary: string) => void;
+  /** Si se pasa, se muestra un botón para cambiar al modo Entrevista (traducción en vivo) */
+  onOpenInterview?: () => void;
 }
 
 export const MeetingModal: React.FC<MeetingModalProps> = ({
@@ -41,7 +44,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   activeNote,
   settings,
   onInsertMeetingNote,
-  onAddBitacoraLog
+  onAddBitacoraLog,
+  onOpenInterview
 }) => {
   const [isPinned, setIsPinned] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -530,7 +534,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleStartMeeting('live')}
-                title="Transcribe en tiempo real cada 15 segundos y evalúa dudas dinámicamente con IA"
+                title="Transcribe cada frase en cuanto termina y evalúa dudas dinámicamente con IA"
                 className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
               >
                 <Play size={13} />
@@ -566,6 +570,21 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             {isAnalyzing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             <span>Generar Minuta con IA</span>
           </button>
+
+          {onOpenInterview && (
+            <button
+              type="button"
+              onClick={() => {
+                if (isRecording) handleStopMeeting();
+                onOpenInterview();
+              }}
+              title="Modo Entrevista: traducción en vivo con tu voz"
+              className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/40 text-sky-300 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Languages size={14} />
+              <span>Entrevista</span>
+            </button>
+          )}
 
           <button
             onClick={() => setShowDeviceSettings(!showDeviceSettings)}

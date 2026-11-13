@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MeetingModal } from './MeetingModal';
+import { InterviewPanel } from '../features/interview/InterviewPanel';
 import { Note, AppSettings, BitacoraEntry } from '../types';
 import { DEFAULT_SETTINGS } from '../defaultSettings';
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdown';
@@ -13,6 +14,7 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
   const [activeNoteId, setActiveNoteId] = useState<string>(noteId || '');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [view, setView] = useState<'meeting' | 'interview'>('meeting');
 
   useEffect(() => {
     const init = async () => {
@@ -157,14 +159,19 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
 
   return (
     <div className="h-screen w-screen bg-slate-900 text-slate-100 flex flex-col overflow-hidden select-none">
-      <MeetingModal
-        isOpen={true}
-        onClose={handleClose}
-        activeNote={activeNote}
-        settings={settings}
-        onInsertMeetingNote={handleInsertMeetingNote}
-        onAddBitacoraLog={handleAddBitacoraLog}
-      />
+      {view === 'interview' ? (
+        <InterviewPanel settings={settings} onBack={() => setView('meeting')} onClose={handleClose} />
+      ) : (
+        <MeetingModal
+          isOpen={true}
+          onClose={handleClose}
+          activeNote={activeNote}
+          settings={settings}
+          onInsertMeetingNote={handleInsertMeetingNote}
+          onAddBitacoraLog={handleAddBitacoraLog}
+          onOpenInterview={() => setView('interview')}
+        />
+      )}
     </div>
   );
 };

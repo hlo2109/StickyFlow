@@ -1,8 +1,8 @@
 import React from 'react';
-import { Sparkles, Zap, Cloud, ShieldCheck, Sliders, Volume2 } from 'lucide-react';
+import { Sparkles, Zap, Cloud, ShieldCheck, Sliders, Volume2, Languages } from 'lucide-react';
 import { AppSettings } from '../../types';
 
-export type SettingsTab = 'ai' | 'rag' | 'database' | 'privacy' | 'window' | 'tts';
+export type SettingsTab = 'ai' | 'rag' | 'database' | 'privacy' | 'window' | 'tts' | 'interview';
 
 /** Props comunes de todas las pestañas: trabajan sobre una copia del formulario. */
 export interface SettingsTabProps {
@@ -25,5 +25,6 @@ export const SETTINGS_TABS: Array<{
   { id: 'database', label: 'Copia & Nube', Icon: Cloud, activeBg: 'bg-emerald-600', activeIcon: 'text-white', idleIcon: 'text-emerald-500' },
   { id: 'privacy', label: 'Privacidad & Seguridad', Icon: ShieldCheck, activeBg: 'bg-amber-600', activeIcon: 'text-white', idleIcon: 'text-amber-500' },
   { id: 'window', label: 'Ventana & General', Icon: Sliders, activeBg: 'bg-slate-700', activeIcon: 'text-white', idleIcon: 'text-slate-500' },
-  { id: 'tts', label: 'Voz & Lectura (TTS)', Icon: Volume2, activeBg: 'bg-sky-600', activeIcon: 'text-white', idleIcon: 'text-sky-500' }
+  { id: 'tts', label: 'Voz & Lectura (TTS)', Icon: Volume2, activeBg: 'bg-sky-600', activeIcon: 'text-white', idleIcon: 'text-sky-500' },
+  { id: 'interview', label: 'Entrevista', Icon: Languages, activeBg: 'bg-cyan-600', activeIcon: 'text-white', idleIcon: 'text-cyan-500' }
 ];

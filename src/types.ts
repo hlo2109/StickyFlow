@@ -57,6 +57,16 @@ export interface AppSettings {
   remoteDbApiKey: string;
   autoSyncRemote: boolean;
 
+  // Modo Entrevista (traducción en vivo con tu propia voz)
+  deepgramApiKey?: string; // Transcripción rápida. Si está vacía se usa Whisper (Hugging Face)
+  elevenLabsApiKey?: string;
+  elevenLabsVoiceId?: string; // ID de tu voz clonada
+  elevenLabsModel?: string; // p. ej. 'eleven_flash_v2_5'
+  interviewMyLang?: string; // idioma en el que hablas, p. ej. 'es'
+  interviewTheirLang?: string; // idioma de la otra persona, p. ej. 'en'
+  interviewOutputDeviceId?: string; // micrófono virtual (VB-CABLE) donde sale tu voz traducida
+  interviewContext?: string; // contexto para traducir mejor términos técnicos
+
   // Privacy & Data Security
   enablePrivacyMasking: boolean; // Mask API keys, passwords, bearer tokens before LLM
   maskSensitiveRegex: boolean;

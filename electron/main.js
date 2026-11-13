@@ -74,7 +74,7 @@ function createMiniStickyWindow(note) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      webSecurity: true,
       spellcheck: true
     }
   });
@@ -589,7 +589,7 @@ function openNoteWindow(noteId) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      webSecurity: true,
       spellcheck: true
     }
   });
@@ -671,7 +671,7 @@ function openSettingsWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      webSecurity: true,
       spellcheck: true
     }
   });
@@ -741,7 +741,7 @@ function openMeetingWindow(noteId) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      webSecurity: true,
       spellcheck: true
     }
   });
@@ -795,7 +795,7 @@ function createDockWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false
+      webSecurity: true
     }
   });
 
@@ -1013,7 +1013,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false,
+      webSecurity: true,
       spellcheck: true
     }
   });

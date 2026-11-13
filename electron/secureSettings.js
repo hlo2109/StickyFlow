@@ -13,7 +13,7 @@ const { safeStorage } = require('electron');
 const fs = require('fs');
 
 /** Campos de AppSettings que contienen credenciales. */
-const SECRET_FIELDS = ['hfApiKey', 'claudeApiKey', 'cloudflareApiToken', 'remoteDbApiKey'];
+const SECRET_FIELDS = ['hfApiKey', 'claudeApiKey', 'cloudflareApiToken', 'remoteDbApiKey', 'deepgramApiKey', 'elevenLabsApiKey'];
 
 const PREFIX = 'enc:v1:';
 
