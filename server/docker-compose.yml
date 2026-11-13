@@ -1,0 +1,16 @@
+# Uso local:  docker compose -f server/docker-compose.yml up --build
+# En Dokploy puedes usar este archivo (Compose) o solo el Dockerfile.
+services:
+  stickyflow:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - stickyflow-data:/data
+volumes:
+  stickyflow-data:
