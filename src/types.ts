@@ -189,6 +189,12 @@ export interface ElectronAPI {
 
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow?: () => Promise<void>;
+  /** Abre (o trae al frente) la lista de notas: la ventana principal */
+  openNotesList?: () => Promise<boolean>;
+  /** Abre una nota NUEVA (en blanco) en su ventana como borrador: solo se guarda cuando se escribe algo. Devuelve el id abierto */
+  openNoteDraft?: (note: Note) => Promise<string | null>;
+  /** La ventana de una nota nueva recoge su borrador */
+  takeNoteDraft?: (noteId: string) => Promise<Note | null>;
   openMeetingWindow?: (noteId?: string, view?: 'meeting' | 'interview' | 'voicenote') => Promise<void>;
 
   // Mini Stickies (multi-window floating desktop widgets)

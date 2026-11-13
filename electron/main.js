@@ -534,6 +534,23 @@ function getDockBounds(position = 'right') {
   }
 }
 
+// ---- Notas NUEVAS (borradores) ----
+// StickyFlow no guarda notas completamente en blanco (evita notas fantasma). Una nota recién creada viaja a su
+// ventana como BORRADOR en memoria y solo llega al disco cuando se escribe algo en ella.
+const draftNotes = new Map(); // noteId -> nota en blanco pendiente de que su ventana la recoja
+let lastDraftId = null;
+
+function isNoteOnDisk(noteId) {
+  try {
+    const file = getDataFilePath();
+    if (!fs.existsSync(file)) return false;
+    const list = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return Array.isArray(list) && list.some((n) => n && n.id === noteId);
+  } catch {
+    return false;
+  }
+}
+
 function openNoteWindow(noteId) {
   if (!noteId) {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -811,18 +828,21 @@ function applyQuickAccess(settings) {
   }
 }
 
+/** Abre la lista de notas (la ventana principal) o la trae al frente si ya estaba abierta. */
+function openNotesListWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  } else {
+    createWindow();
+  }
+}
+
 // ---- Icono de la bandeja del sistema (acceso rápido) ----
 function trayHandlers() {
   return {
-    openMain: () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      } else {
-        createWindow();
-      }
-    },
+    openMain: () => openNotesListWindow(),
     openView: (view) => openMeetingWindow('', view),
     openSettings: () => openSettingsWindow(),
     createShortcuts: () => createDesktopShortcuts(),
@@ -1079,21 +1099,23 @@ function cleanupOrphanedMarkdownFiles(validNotes) {
   return removedCount;
 }
 
+/** Ventana PRINCIPAL = la lista de notas. Cada nota se abre en su propia ventana (openNoteWindow). */
 function createWindow() {
+  const { nativeTheme } = require('electron');
   mainWindow = new BrowserWindow({
-    width: 490,
-    height: 560,
-    minWidth: 380,
-    minHeight: 380,
+    width: 440,
+    height: 680,
+    minWidth: 360,
+    minHeight: 420,
     maxWidth: 950,
-    maxHeight: 900,
+    maxHeight: 1000,
     frame: false,
     show: false, // will show when ready to avoid flashing/hanging
     alwaysOnTop: isAlwaysOnTop,
     skipTaskbar: false,
     hasShadow: true,
     roundedCorners: true,
-    backgroundColor: '#fef08a',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f172a' : '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -2016,13 +2038,12 @@ ipcMain.handle('sticky:getOpenList', () => {
 });
 
 ipcMain.handle('sticky:expand', (_event, noteId) => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    createWindow();
-  }
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.webContents.send('select-note', noteId);
+  openNoteWindow(noteId);
+  return true;
+});
+
+ipcMain.handle('window:open-notes-list', () => {
+  openNotesListWindow();
   return true;
 });
 
@@ -2052,6 +2073,31 @@ ipcMain.handle('dock:set-position', (_event, position) => {
     mainWindow.webContents.send('dock:settings-updated', settings);
   }
   return true;
+});
+
+// Abre una nota NUEVA en su propia ventana. Si ya hay una nota nueva abierta que todavía no se ha escrito
+// (no está en el disco), se reutiliza en vez de abrir otra en blanco. Devuelve el id de la nota abierta.
+ipcMain.handle('note:open-draft', (_event, note) => {
+  if (lastDraftId && noteWindows.has(lastDraftId) && !isNoteOnDisk(lastDraftId)) {
+    const existing = noteWindows.get(lastDraftId);
+    if (existing && !existing.isDestroyed()) {
+      openNoteWindow(lastDraftId);
+      return lastDraftId;
+    }
+  }
+  const clean = sanitizeNotesList([note])[0]; // con una sola nota, la función no la descarta aunque esté en blanco
+  if (!clean) return null;
+  draftNotes.set(clean.id, clean);
+  lastDraftId = clean.id;
+  openNoteWindow(clean.id);
+  return clean.id;
+});
+
+// La ventana de una nota nueva recoge su borrador (una sola vez).
+ipcMain.handle('note:take-draft', (_event, noteId) => {
+  const draft = draftNotes.get(noteId) || null;
+  draftNotes.delete(noteId);
+  return draft;
 });
 
 ipcMain.handle('dock:open-note-window', (_event, noteId) => {

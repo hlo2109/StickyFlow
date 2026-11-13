@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Note, AppSettings, NoteColor, BitacoraEntry } from './types';
 import { Header } from './components/Header';
 import { Editor } from './components/Editor';
-import { Sidebar } from './components/Sidebar';
 import { AiModal } from './components/AiModal';
 import { BitacoraModal } from './components/BitacoraModal';
 import { SettingsModal } from './features/settings/SettingsModal';
@@ -10,47 +9,8 @@ import { MeetingModal } from './components/MeetingModal';
 import { htmlToMarkdown, markdownToHtml, formatNoteForClaude } from './utils/markdown';
 import { ttsService } from './utils/ttsService';
 import { DEFAULT_SETTINGS } from './defaultSettings';
-
-const INITIAL_WELCOME_NOTE: Note = {
-  id: 'welcome-1',
-  title: '👋 ¡Bienvenido a StickyFlow!',
-  content: `<h2>📌 Tu Bloc de Notas Flotante e Inteligente</h2>
-<p>Esta es tu nueva aplicación de notas tipo <strong>sticky note</strong> para Windows, siempre flotante, rápida y sin lag.</p>
-<ul data-type="taskList">
-  <li data-type="taskItem" data-checked="true"><label><input type="checkbox" checked="checked"><span></span></label><div><p>Ventana flotante configurable (📌 arriba a la izquierda)</p></div></li>
-  <li data-type="taskItem" data-checked="true"><label><input type="checkbox" checked="checked"><span></span></label><div><p>Panel lateral derecho plegable para organizar notas</p></div></li>
-  <li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>Configurar tu clave API en ⚙️ Ajustes</p></div></li>
-  <li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>Probar el botón <strong>✨ IA</strong> (Resumir, Crear nota desde ideas o RAG)</p></div></li>
-  <li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>Presionar <strong>🎙️ Dictar</strong> para escribir con tu voz</p></div></li>
-  <li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>Presionar <strong>📅 Fecha</strong> para registrar en la bitácora</p></div></li>
-</ul>
-<p>💡 <em>Tip: Puedes pegar imágenes directamente con <strong>Ctrl+V</strong> o cambiar a modo Markdown puro en cualquier momento.</em></p>`,
-  markdownContent: `## 📌 Tu Bloc de Notas Flotante e Inteligente
-
-Esta es tu nueva aplicación de notas tipo **sticky note** para Windows, siempre flotante, rápida y sin lag.
-
-- [x] Ventana flotante configurable (📌 arriba a la izquierda)
-- [x] Panel lateral derecho plegable para organizar notas
-- [ ] Configurar tu clave API en ⚙️ Ajustes
-- [ ] Probar el botón **✨ IA** (Resumir, Crear nota desde ideas o RAG)
-- [ ] Presionar **🎙️ Dictar** para escribir con tu voz
-- [ ] Presionar **📅 Fecha** para registrar en la bitácora
-
-💡 *Tip: Puedes pegar imágenes directamente con **Ctrl+V** o cambiar a modo Markdown puro en cualquier momento.*`,
-  color: 'yellow',
-  isPinned: true,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  tags: ['bienvenida', 'guía'],
-  bitacora: [
-    {
-      id: 'b-init',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      action: 'creacion',
-      summary: 'Nota de bienvenida creada automáticamente'
-    }
-  ]
-};
+import { INITIAL_WELCOME_NOTE } from './features/notes/welcomeNote';
+import { isBlankNote, planNewNote } from './features/notes/notesLogic';
 
 const getParamFromUrl = (name: string): string | null => {
   try {
@@ -68,7 +28,6 @@ export const App: React.FC = () => {
   const requestedNoteId = getParamFromUrl('noteId');
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string>(requestedNoteId || '');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(true);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
@@ -80,9 +39,13 @@ export const App: React.FC = () => {
 
   // Autosave timer ref
   const saveTimeoutRef = useRef<any>(null);
+  // ¿La nota de esta ventana se vio ya en el disco? (distingue «la borraron desde otra ventana» de «es nueva y aún no se guardó»)
+  const noteSeenOnDisk = useRef(false);
+  const notesRef = useRef<Note[]>([]);
 
   // Active Note - safe lookup
   const activeNote = notes.find((n) => n.id === activeNoteId) || notes[0];
+  notesRef.current = notes;
 
   // Load notes & settings on initial mount
   useEffect(() => {
@@ -150,14 +113,30 @@ export const App: React.FC = () => {
           });
         }
 
+        const savedCount = finalNotes.length; // antes de añadir un posible borrador
+
+        // Ventana de UNA nota: o está en el disco, o es una nota NUEVA (borrador en memoria), o ya no existe (se cierra).
+        if (requestedNoteId) {
+          if (finalNotes.some((n) => n.id === requestedNoteId)) {
+            noteSeenOnDisk.current = true;
+          } else {
+            const draft = await window.electronAPI?.takeNoteDraft?.(requestedNoteId);
+            if (draft) {
+              finalNotes = [draft, ...finalNotes];
+            } else {
+              window.electronAPI?.close();
+              return;
+            }
+          }
+        }
         const initialId = (requestedNoteId && finalNotes.some((n) => n.id === requestedNoteId))
           ? requestedNoteId
           : finalNotes[0].id;
 
         setNotes(finalNotes);
         setActiveNoteId(initialId);
-        if (finalNotes.length !== loadedNotes.length) {
-          triggerSave(finalNotes);
+        if (savedCount !== loadedNotes.length) {
+          triggerSave(finalNotes.filter((n) => !(requestedNoteId && n.id === requestedNoteId && isBlankNote(n))));
         }
       } else {
         setNotes([INITIAL_WELCOME_NOTE]);
@@ -176,6 +155,19 @@ export const App: React.FC = () => {
     if (window.electronAPI?.onNotesUpdated) {
       window.electronAPI.onNotesUpdated((updatedNotes) => {
         if (Array.isArray(updatedNotes) && updatedNotes.length > 0) {
+          if (requestedNoteId) {
+            const mine = notesRef.current.find((n) => n.id === requestedNoteId);
+            if (updatedNotes.some((n) => n.id === requestedNoteId)) {
+              noteSeenOnDisk.current = true;
+            } else if (noteSeenOnDisk.current && mine && !isBlankNote(mine)) {
+              window.electronAPI?.close(); // la nota de esta ventana se eliminó desde la lista
+              return;
+            } else if (mine) {
+              // Nota nueva que todavía no está en el disco: se conserva (si no, esta ventana la perdería)
+              setNotes([mine, ...updatedNotes]);
+              return;
+            }
+          }
           setNotes(updatedNotes);
         }
       });
@@ -213,11 +205,6 @@ export const App: React.FC = () => {
       });
     }
 
-    if (window.electronAPI?.onSelectNote) {
-      window.electronAPI.onSelectNote((noteId: string) => {
-        handleSelectNote(noteId);
-      });
-    }
   }, []);
 
   const handleToggleMiniSticky = async (note: Note, e?: React.MouseEvent) => {
@@ -280,15 +267,6 @@ export const App: React.FC = () => {
     });
   };
 
-  // Safe Note Selection - cancels any pending debounced save & active TTS
-  const handleSelectNote = (id: string) => {
-    ttsService.stop();
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    setActiveNoteId(id);
-  };
-
   // Add bitácora entry
   const handleAddBitacoraLog = (action: BitacoraEntry['action'], summary: string) => {
     if (!activeNote) return;
@@ -333,48 +311,33 @@ export const App: React.FC = () => {
     }
   };
 
-  // Create new blank note
-  const handleCreateNewNote = () => {
-    // If there is already an existing blank note in the list, just navigate to it
-    const isBlank = (n: Note) =>
-      (!n.title || n.title.trim() === '') &&
-      (!n.content || n.content.replace(/<[^>]*>?/gm, '').replace(/&nbsp;/g, '').trim() === '') &&
-      (!n.markdownContent || n.markdownContent.trim() === '');
+  /** Guarda YA la lista (sin esperar al guardado diferido) y abre esa nota en su propia ventana. */
+  const saveAndOpenInWindow = async (nextNotes: Note[], noteId: string) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    setNotes(nextNotes);
+    if (window.electronAPI) {
+      await window.electronAPI.saveNotes(nextNotes); // antes de abrir, para que la ventana nueva la encuentre
+      window.electronAPI.openNoteWindow?.(noteId);
+    } else {
+      localStorage.setItem('stickyflow_notes', JSON.stringify(nextNotes));
+      setActiveNoteId(noteId);
+    }
+  };
 
-    const existingBlank = notes.find(isBlank);
-    if (existingBlank) {
-      setActiveNoteId(existingBlank.id);
+  // Nueva nota: se abre en su propia ventana (si ya hay una en blanco, se reutiliza)
+  const handleCreateNewNote = () => {
+    const plan = planNewNote(notes, settings);
+    if (!plan.created) {
+      if (window.electronAPI?.openNoteWindow) window.electronAPI.openNoteWindow(plan.note.id);
+      else setActiveNoteId(plan.note.id);
       return;
     }
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
+    // Nota nueva (en blanco): va a su ventana como borrador y se guarda cuando se escriba algo.
+    if (window.electronAPI?.openNoteDraft) {
+      void window.electronAPI.openNoteDraft(plan.note);
+    } else {
+      void saveAndOpenInWindow(plan.notes, plan.note.id);
     }
-
-    const newNote: Note = {
-      id: 'note-' + Date.now(),
-      title: '',
-      content: '',
-      markdownContent: '',
-      color: settings.defaultColor || 'yellow',
-      isPinned: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: [],
-      bitacora: [
-        {
-          id: 'b-' + Date.now(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          action: 'creacion',
-          summary: 'Nota creada'
-        }
-      ]
-    };
-
-    const nextNotes = [newNote, ...notes];
-    setNotes(nextNotes);
-    setActiveNoteId(newNote.id);
-    triggerSave(nextNotes);
   };
 
   // Create Note from AI Ideas
@@ -403,10 +366,7 @@ export const App: React.FC = () => {
       ]
     };
 
-    const nextNotes = [newNote, ...notes];
-    setNotes(nextNotes);
-    setActiveNoteId(newNote.id);
-    triggerSave(nextNotes);
+    void saveAndOpenInWindow([newNote, ...notes], newNote.id);
   };
 
   // Insert meeting minutes note
@@ -430,46 +390,6 @@ export const App: React.FC = () => {
     }
   };
 
-  // Delete note
-  const handleDeleteNote = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (notes.length <= 1) {
-      const resetNote: Note = {
-        id: 'note-' + Date.now(),
-        title: '',
-        content: '',
-        markdownContent: '',
-        color: 'yellow',
-        isPinned: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        tags: [],
-        bitacora: []
-      };
-      setNotes([resetNote]);
-      setActiveNoteId(resetNote.id);
-      triggerSave([resetNote]);
-      return;
-    }
-
-    const nextNotes = notes.filter((n) => n.id !== id);
-    setNotes(nextNotes);
-    if (activeNoteId === id) {
-      setActiveNoteId(nextNotes[0].id);
-    }
-    triggerSave(nextNotes);
-  };
-
-  // Toggle pin in list
-  const handleTogglePinNote = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setNotes((prev) => {
-      const next = prev.map((n) => (n.id === id ? { ...n, isPinned: !n.isPinned } : n));
-      triggerSave(next);
-      return next;
-    });
-  };
-
   // Change color
   const handleChangeColor = (color: NoteColor) => {
     if (activeNote) {
@@ -490,18 +410,9 @@ export const App: React.FC = () => {
   const handleMinimize = () => window.electronAPI?.minimize();
   const handleClose = () => window.electronAPI?.close();
 
-  // Toggle Sidebar
-  const handleToggleSidebar = () => {
-    const nextState = !isSidebarOpen;
-    setIsSidebarOpen(nextState);
-
-    if (window.electronAPI?.resizeWindow) {
-      if (nextState) {
-        window.electronAPI.resizeWindow(780, 600);
-      } else {
-        window.electronAPI.resizeWindow(490, 560);
-      }
-    }
+  // La lista de notas es su propia ventana (la principal): se abre o se trae al frente
+  const handleOpenNotesList = () => {
+    window.electronAPI?.openNotesList?.();
   };
 
   const handleOpenFolder = () => {
@@ -572,7 +483,7 @@ export const App: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
         e.preventDefault();
-        handleToggleSidebar();
+        handleOpenNotesList();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleCreateNewNote();
@@ -584,7 +495,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isSidebarOpen, notes, activeNoteId]);
+  }, [notes, activeNoteId]);
 
   const handleOpenInNewWindow = (noteId?: string) => {
     const targetId = noteId || activeNote?.id;
@@ -638,8 +549,7 @@ export const App: React.FC = () => {
         onNewNote={handleCreateNewNote}
         currentColor={currentColor}
         onChangeColor={handleChangeColor}
-        onToggleSidebar={handleToggleSidebar}
-        isSidebarOpen={isSidebarOpen}
+        onOpenNotesList={handleOpenNotesList}
         onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenBitacoraModal={() => setIsBitacoraModalOpen(true)}
         onOpenSettings={handleOpenSettingsAction}
@@ -653,7 +563,7 @@ export const App: React.FC = () => {
         onReadNote={handleReadCurrentNote}
       />
 
-      {/* Main Workspace (Editor + Right Collapsible Sidebar) */}
+      {/* Espacio de trabajo: el editor de esta nota */}
       <div className="flex-1 flex overflow-hidden relative">
         <main className="flex-1 h-full overflow-hidden flex flex-col">
           {activeNote ? (
@@ -673,21 +583,6 @@ export const App: React.FC = () => {
             </div>
           )}
         </main>
-
-        <Sidebar
-          isOpen={isSidebarOpen}
-          onClose={() => handleToggleSidebar()}
-          notes={notes}
-          activeNoteId={activeNote?.id || ''}
-          onSelectNote={handleSelectNote}
-          onNewNote={handleCreateNewNote}
-          onDeleteNote={handleDeleteNote}
-          onTogglePinNote={handleTogglePinNote}
-          onOpenFolder={handleOpenFolder}
-          onToggleMiniSticky={handleToggleMiniSticky}
-          openMiniStickIds={Array.from(new Set([...openMiniStickIds, ...dockedNoteIds]))}
-          onOpenInNewWindow={handleOpenInNewWindow}
-        />
       </div>
 
       {/* Modals */}

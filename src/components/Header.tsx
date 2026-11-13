@@ -7,7 +7,7 @@ import {
   Sparkles,
   BookOpen,
   Settings,
-  PanelRight,
+  LayoutList,
   Copy,
   Plus,
   Palette,
@@ -30,8 +30,7 @@ interface HeaderProps {
   onNewNote: () => void;
   currentColor: NoteColor;
   onChangeColor: (color: NoteColor) => void;
-  onToggleSidebar: () => void;
-  isSidebarOpen: boolean;
+  onOpenNotesList: () => void;
   onOpenAiModal: () => void;
   onOpenBitacoraModal: () => void;
   onOpenSettings: () => void;
@@ -66,8 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNewNote,
   currentColor,
   onChangeColor,
-  onToggleSidebar,
-  isSidebarOpen,
+  onOpenNotesList,
   onOpenAiModal,
   onOpenBitacoraModal,
   onOpenSettings,
@@ -357,15 +355,13 @@ export const Header: React.FC<HeaderProps> = ({
           <Settings size={15} />
         </button>
 
-        {/* Sidebar Toggle */}
+        {/* Lista de notas: abre su propia ventana */}
         <button
-          onClick={onToggleSidebar}
-          title={isSidebarOpen ? 'Ocultar lista de notas' : 'Mostrar lista de notas (Ctrl + B)'}
-          className={`p-1 rounded-md transition-all cursor-pointer ${
-            isSidebarOpen ? 'bg-black/15 dark:bg-white/20 font-bold' : 'hover:bg-black/10 dark:hover:bg-white/15'
-          }`}
+          onClick={onOpenNotesList}
+          title="Abrir la lista de notas (Ctrl + B)"
+          className="p-1 rounded-md transition-all cursor-pointer hover:bg-black/10 dark:hover:bg-white/15"
         >
-          <PanelRight size={16} />
+          <LayoutList size={16} />
         </button>
 
         {/* Window controls: Minimize & Close */}

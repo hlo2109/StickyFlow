@@ -5,7 +5,8 @@ import {
   Eye,
   EyeOff,
   Compass,
-  Plus,
+  LayoutList,
+  Languages,
   StickyNote,
   X,
   SlidersHorizontal,
@@ -278,6 +279,16 @@ export const NotebookDockView: React.FC = () => {
     }
   };
 
+  /** Abre la lista de notas (la ventana principal). */
+  const handleOpenNotesList = () => {
+    if (window.electronAPI?.openNotesList) window.electronAPI.openNotesList();
+  };
+
+  /** Abre DIRECTO el modo Entrevista (traducción en vivo), sin pasar por ninguna nota ni por Ajustes. */
+  const handleOpenInterview = () => {
+    window.electronAPI?.openMeetingWindow?.(undefined, 'interview');
+  };
+
   const handleToggleTitles = async () => {
     const nextShow = !showTitles;
     const nextSettings = { ...settings, dockShowTitles: nextShow };
@@ -356,12 +367,12 @@ export const NotebookDockView: React.FC = () => {
           onMouseLeave={handleToolbarMouseLeave}
           className={`dock-interactive pointer-events-auto cursor-pointer flex items-center transition-all duration-200 ease-out border shadow-md bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 ${
             position === 'right'
-              ? `rounded-l-xl border-r-0 justify-start pl-2.5 ${isToolbarHovered ? 'w-52 pr-2 shadow-xl' : 'w-9 pr-0'}`
+              ? `rounded-l-xl border-r-0 justify-start pl-2.5 ${isToolbarHovered ? 'w-60 pr-2 shadow-xl' : 'w-9 pr-0'}`
               : position === 'left'
-              ? `rounded-r-xl border-l-0 justify-start pl-2 ${isToolbarHovered ? 'w-52 pr-2.5 shadow-xl' : 'w-9 pr-0'}`
+              ? `rounded-r-xl border-l-0 justify-start pl-2 ${isToolbarHovered ? 'w-60 pr-2.5 shadow-xl' : 'w-9 pr-0'}`
               : position === 'top'
-              ? `rounded-b-xl border-t-0 justify-start pt-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-52' : 'h-8 px-2 w-10'}`
-              : `rounded-t-xl border-b-0 justify-start pb-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-52' : 'h-8 px-2 w-10'}`
+              ? `rounded-b-xl border-t-0 justify-start pt-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-60' : 'h-8 px-2 w-10'}`
+              : `rounded-t-xl border-b-0 justify-start pb-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-60' : 'h-8 px-2 w-10'}`
           } overflow-hidden h-8`}
           title={isToolbarHovered ? 'Herramientas de Separadores' : 'Opciones y herramientas'}
         >
@@ -412,13 +423,22 @@ export const NotebookDockView: React.FC = () => {
                 <Compass size={12} className="text-sky-600 dark:text-sky-400" />
               </button>
 
-              {/* Open Main StickyFlow Window */}
+              {/* Entrevista: se abre directo en la traducción en vivo */}
               <button
-                onClick={(e) => { e.stopPropagation(); handleOpenNote(notes[0]?.id || ''); }}
+                onClick={(e) => { e.stopPropagation(); handleOpenInterview(); }}
                 className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-                title="Abrir ventana principal de StickyFlow"
+                title="Entrevista: traducción en vivo con tu voz (Ctrl+Alt+E)"
               >
-                <Plus size={12} className="text-emerald-600 dark:text-emerald-400" />
+                <Languages size={12} className="text-violet-600 dark:text-violet-400" />
+              </button>
+
+              {/* Lista de notas (ventana principal) */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleOpenNotesList(); }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                title="Abrir la lista de notas"
+              >
+                <LayoutList size={12} className="text-emerald-600 dark:text-emerald-400" />
               </button>
 
               {/* Open Independent Settings Window */}
@@ -458,7 +478,7 @@ export const NotebookDockView: React.FC = () => {
           {dockedNotes.length === 0 ? (
             /* Empty State: Mini protruding tab */
             <div
-              onClick={() => handleOpenNote(notes[0]?.id || '')}
+              onClick={() => handleOpenNotesList()}
               className={`dock-interactive pointer-events-auto cursor-pointer group flex items-center gap-1.5 px-3 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 font-medium text-xs shadow-md border border-amber-400 transition-all ${
                 position === 'right'
                   ? 'rounded-l-xl border-r-0'
@@ -468,7 +488,7 @@ export const NotebookDockView: React.FC = () => {
                   ? 'rounded-b-xl border-t-0'
                   : 'rounded-t-xl border-b-0'
               }`}
-              title="Haz clic para fijar notas aquí desde StickyFlow"
+              title="Haz clic para abrir tu lista de notas y fijar aquí las que quieras"
             >
               <StickyNote size={13} className="text-amber-800 shrink-0" />
               {showTitles && <span className="text-[11px] font-bold tracking-wide">Fijar Notas</span>}

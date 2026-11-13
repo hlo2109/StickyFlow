@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow: () => ipcRenderer.invoke('window:open-settings'),
+  openNotesList: () => ipcRenderer.invoke('window:open-notes-list'),
+  openNoteDraft: (note) => ipcRenderer.invoke('note:open-draft', note),
+  takeNoteDraft: (noteId) => ipcRenderer.invoke('note:take-draft', noteId),
   openMeetingWindow: (noteId, view) => ipcRenderer.invoke('window:open-meeting', noteId, view),
 
   // File system & Folder integration for Claude / User
