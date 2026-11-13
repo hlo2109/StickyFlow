@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, clipboard, session, desktopCapturer, Menu, MenuItem, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const secureSettings = require('./secureSettings');
 
 let mainWindow = null;
 let isAlwaysOnTop = true;
@@ -142,7 +143,7 @@ const loadSettingsDirect = () => {
   try {
     const filePath = getSettingsFilePath();
     if (fs.existsSync(filePath)) {
-      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      const parsed = secureSettings.readSettingsFile(filePath) || {};
       if (parsed.dockAlwaysOnTop === undefined) parsed.dockAlwaysOnTop = true;
       if (parsed.startDockOnly === undefined) parsed.startDockOnly = true;
       if (!parsed.ttsVoice) parsed.ttsVoice = 'es-MX-DaliaNeural';
@@ -352,7 +353,7 @@ const createBackupFile = (notes, settings) => {
       timestamp: d.toISOString(),
       notesCount: Array.isArray(notes) ? notes.length : 0,
       notes: notes || [],
-      settings: safeSettings
+      settings: secureSettings.stripSecrets(safeSettings)
     };
 
     const jsonStr = JSON.stringify(backupPayload, null, 2);
@@ -365,7 +366,7 @@ const createBackupFile = (notes, settings) => {
     safeSettings.lastBackupTime = d.toISOString();
     safeSettings.lastBackupSize = sizeStr;
     try {
-      fs.writeFileSync(getSettingsFilePath(), JSON.stringify(safeSettings, null, 2), 'utf-8');
+      secureSettings.writeSettingsFile(getSettingsFilePath(), safeSettings);
     } catch {}
 
     // Clean older auto backups, keep up to 10 latest
@@ -466,8 +467,8 @@ const restoreBackupFromFile = (targetFilePath) => {
     if (parsed.settings && typeof parsed.settings === 'object') {
       try {
         const curSettings = loadSettingsDirect();
-        const merged = { ...curSettings, ...parsed.settings };
-        fs.writeFileSync(getSettingsFilePath(), JSON.stringify(merged, null, 2), 'utf-8');
+        const merged = secureSettings.mergeKeepingSecrets(curSettings, parsed.settings);
+        secureSettings.writeSettingsFile(getSettingsFilePath(), merged);
       } catch {}
     }
 
@@ -1111,7 +1112,10 @@ if (!gotTheLock) {
         }
       } catch {}
       e.preventDefault();
-      shell.openExternal(navigationUrl);
+      // Solo enlaces web normales; nunca protocolos del sistema (ms-msdt:, file:, etc.).
+      if (/^(https?:|mailto:)/i.test(navigationUrl)) {
+        shell.openExternal(navigationUrl);
+      }
     });
 
     // Native Right-Click Context Menu: Spellcheck suggestions, Copy/Cut/Paste, and TTS
@@ -1248,10 +1252,23 @@ if (!gotTheLock) {
       }
 
       // Grant media and audio capture permissions
+      // Solo se conceden los permisos que la app usa (micrófono, audio del sistema, portapapeles)
+      // y únicamente a nuestras propias páginas. Todo lo demás se deniega.
+      const ALLOWED_PERMISSIONS = new Set(['media', 'audioCapture', 'display-capture', 'clipboard-sanitized-write']);
+      const isOwnPage = (url) => {
+        try {
+          const u = new URL(url);
+          return u.protocol === 'file:' || u.host === 'localhost:5173';
+        } catch {
+          return false;
+        }
+      };
       session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-        callback(true);
+        callback(ALLOWED_PERMISSIONS.has(permission) && isOwnPage(webContents.getURL()));
       });
-      session.defaultSession.setPermissionCheckHandler(() => true);
+      session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+        return ALLOWED_PERMISSIONS.has(permission) && isOwnPage(requestingOrigin || (webContents && webContents.getURL()) || '');
+      });
 
       // Support capturing system loopback audio seamlessly
       if (session.defaultSession.setDisplayMediaRequestHandler) {
@@ -1576,6 +1593,11 @@ ipcMain.handle('backup:restore-file', (_event, filePath) => {
   if (!targetPath) {
     return { success: false, error: 'No se encontró ningún archivo de respaldo.' };
   }
+  // El renderer no puede pedir leer archivos arbitrarios: debe ser un respaldo conocido.
+  const known = new Set(listBackups().map(b => path.resolve(b.filePath)));
+  if (!known.has(path.resolve(targetPath))) {
+    return { success: false, error: 'Archivo de respaldo no válido.' };
+  }
   return restoreBackupFromFile(targetPath);
 });
 
@@ -1609,7 +1631,7 @@ ipcMain.handle('backup:export-dialog', async (event) => {
     timestamp: d.toISOString(),
     notesCount: sanitized.length,
     notes: sanitized,
-    settings
+    settings: secureSettings.stripSecrets(settings)
   };
 
   try {
@@ -1661,7 +1683,7 @@ ipcMain.handle('backup:change-storage-dir', (_event, newPath, copyExisting) => {
       settings.cloudProvider = 'custom';
     }
 
-    fs.writeFileSync(getSettingsFilePath(), JSON.stringify(settings, null, 2), 'utf-8');
+    secureSettings.writeSettingsFile(getSettingsFilePath(), settings);
 
     // Optionally copy existing files to the new storage folder
     if (copyExisting && oldDir !== newPath && fs.existsSync(oldDir)) {
@@ -1713,8 +1735,7 @@ ipcMain.handle('settings:load', () => {
   try {
     const filePath = getSettingsFilePath();
     if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(data);
+      const parsed = secureSettings.readSettingsFile(filePath) || {};
       if (
         !parsed.hfModel ||
         parsed.hfModel === 'openai/gpt-oss-120b' ||
@@ -1762,7 +1783,7 @@ ipcMain.handle('settings:load', () => {
 ipcMain.handle('settings:save', (_event, settings) => {
   try {
     const filePath = getSettingsFilePath();
-    fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf-8');
+    secureSettings.writeSettingsFile(filePath, settings);
     if (typeof settings.alwaysOnTop === 'boolean' && mainWindow) {
       isAlwaysOnTop = settings.alwaysOnTop;
       mainWindow.setAlwaysOnTop(isAlwaysOnTop, 'floating', 1);
@@ -1887,7 +1908,7 @@ ipcMain.handle('dock:set-position', (_event, position) => {
   settings.dockPosition = position;
   try {
     const sPath = getSettingsFilePath();
-    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+    secureSettings.writeSettingsFile(sPath, settings);
   } catch (err) {
     console.error('Error saving settings dockPosition:', err);
   }
@@ -1926,7 +1947,7 @@ ipcMain.handle('dock:get-docked-ids', () => {
         const resultIds = pinnedIds.length > 0 ? pinnedIds : notes.map(n => n.id);
         settings.dockedNoteIds = resultIds;
         try {
-          fs.writeFileSync(getSettingsFilePath(), JSON.stringify(settings, null, 2), 'utf-8');
+          secureSettings.writeSettingsFile(getSettingsFilePath(), settings);
         } catch {}
         return resultIds;
       }
@@ -1959,7 +1980,7 @@ ipcMain.handle('dock:toggle-pin', (_event, noteId) => {
   settings.dockedNoteIds = dockedIds;
   try {
     const sPath = getSettingsFilePath();
-    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+    secureSettings.writeSettingsFile(sPath, settings);
   } catch (err) {
     console.error('Error saving dockedNoteIds:', err);
   }
@@ -1981,7 +2002,7 @@ ipcMain.handle('dock:set-always-on-top', (_event, value) => {
   settings.dockAlwaysOnTop = Boolean(value);
   try {
     const sPath = getSettingsFilePath();
-    fs.writeFileSync(sPath, JSON.stringify(settings, null, 2), 'utf-8');
+    secureSettings.writeSettingsFile(sPath, settings);
   } catch (err) {
     console.error('Error saving settings dockAlwaysOnTop:', err);
   }
