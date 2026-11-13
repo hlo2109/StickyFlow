@@ -148,7 +148,7 @@ export interface ElectronAPI {
   importBackupDialog?: () => Promise<{ success: boolean; count?: number; error?: string }>;
   changeStorageDir?: (newPath: string, copyExisting?: boolean) => Promise<{ success: boolean; dir?: string; error?: string }>;
   selectFolderDialog?: () => Promise<string | null>;
-  cleanNotesGarbage?: () => Promise<{ success: boolean; removedCount: number; remainingCount: number }>;
+  cleanNotesGarbage?: () => Promise<{ success: boolean; removedCount: number; remainingCount: number; error?: string }>;
 
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow?: () => Promise<void>;
