@@ -9,44 +9,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { MeetingModal } from './components/MeetingModal';
 import { htmlToMarkdown, markdownToHtml, formatNoteForClaude } from './utils/markdown';
 import { ttsService } from './utils/ttsService';
-
-const DEFAULT_SETTINGS: AppSettings = {
-  hfEndpoint: 'https://router.huggingface.co/v1',
-  hfModel: 'Qwen/Qwen2.5-72B-Instruct',
-  hfApiKey: '',
-  claudeApiKey: '',
-  claudeModel: 'claude-3-5-sonnet-20241022',
-  activeAiProvider: 'huggingface',
-  enableCloudflareRag: false,
-  cloudflareAccountId: '',
-  cloudflareApiToken: '',
-  cloudflareVectorizeIndex: '',
-  cloudflareRagEndpoint: '',
-  dbMode: 'local',
-  remoteDbProvider: 'supabase',
-  remoteDbUrl: '',
-  remoteDbApiKey: '',
-  autoSyncRemote: false,
-  enablePrivacyMasking: true,
-  maskSensitiveRegex: true,
-  speechLang: 'es-ES',
-  ttsVoice: 'es-MX-DaliaNeural',
-  ttsRate: 1.0,
-  ttsPitch: 1.0,
-  ttsVolume: 1.0,
-  useNeuralTts: true,
-  autoBackupEnabled: true,
-  autoBackupFrequency: 'daily',
-  alwaysOnTop: true,
-  defaultColor: 'yellow',
-  opacity: 0.98,
-  startDockOnly: true,
-  dockPosition: 'right',
-  dockShowTitles: true,
-  dockEnabled: true,
-  dockAlwaysOnTop: true,
-  dockedNoteIds: []
-};
+import { DEFAULT_SETTINGS } from './defaultSettings';
 
 const INITIAL_WELCOME_NOTE: Note = {
   id: 'welcome-1',

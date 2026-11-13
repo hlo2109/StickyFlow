@@ -19,7 +19,7 @@ import {
   Search
 } from 'lucide-react';
 import { Note, AppSettings } from '../types';
-import { executeAiTask, AiRequestOptions } from '../utils/aiService';
+import { executeAiTask, AiRequestOptions } from '../features/ai';
 
 interface AiModalProps {
   isOpen: boolean;

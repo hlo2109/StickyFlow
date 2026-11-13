@@ -24,7 +24,7 @@ import { Note, AppSettings, MeetingDoubt } from '../types';
 import { getAudioDevices, AudioDeviceInfo } from '../utils/audioService';
 import { meetingCapture, MeetingSegment } from '../features/meeting/capture/meetingCapture';
 import { transcribeAudio } from '../features/meeting/stt/whisper';
-import { executeAiTask, analyzeMeetingDoubtRadar } from '../utils/aiService';
+import { executeAiTask, analyzeMeetingDoubtRadar } from '../features/ai';
 
 interface MeetingModalProps {
   isOpen: boolean;

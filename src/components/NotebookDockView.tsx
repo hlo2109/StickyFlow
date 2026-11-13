@@ -12,6 +12,7 @@ import {
   Settings as SettingsIcon
 } from 'lucide-react';
 import { Note, AppSettings, NoteColor } from '../types';
+import { DEFAULT_SETTINGS } from '../defaultSettings';
 
 const COLOR_THEMES: Record<NoteColor, {
   tabBg: string;
@@ -149,35 +150,7 @@ const COLOR_THEMES: Record<NoteColor, {
 
 export const NotebookDockView: React.FC = () => {
   const [notes, setNotes] = useState<Note[]>([]);
-  const [settings, setSettings] = useState<AppSettings>({
-    hfEndpoint: 'https://router.huggingface.co/v1',
-    hfModel: 'openai/gpt-oss-120b',
-    hfApiKey: '',
-    claudeApiKey: '',
-    claudeModel: 'claude-3-5-sonnet-20241022',
-    activeAiProvider: 'huggingface',
-    enableCloudflareRag: false,
-    cloudflareAccountId: '',
-    cloudflareApiToken: '',
-    cloudflareVectorizeIndex: '',
-    cloudflareRagEndpoint: '',
-    dbMode: 'local',
-    remoteDbProvider: 'supabase',
-    remoteDbUrl: '',
-    remoteDbApiKey: '',
-    autoSyncRemote: false,
-    enablePrivacyMasking: true,
-    maskSensitiveRegex: true,
-    speechLang: 'es-ES',
-    alwaysOnTop: true,
-    defaultColor: 'yellow',
-    opacity: 0.98,
-    dockPosition: 'right',
-    dockShowTitles: true,
-    dockEnabled: true,
-    dockAlwaysOnTop: true,
-    dockedNoteIds: []
-  });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   const [dockedIds, setDockedIds] = useState<string[]>([]);
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
