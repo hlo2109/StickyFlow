@@ -19,6 +19,7 @@ import { speechToText, SttResult } from './services/stt';
 import { translateText, TranslateResult } from './services/translate';
 import { synthesizeSpeech } from './services/elevenlabs';
 import { SpeechPlayer } from './services/speechPlayer';
+import { isLikelyEcho, pruneSpoken, SpokenRecord } from './echoGuard';
 
 export type LineSide = 'me' | 'them';
 export type LineStatus = 'translating' | 'ready' | 'error';
@@ -44,6 +45,10 @@ export interface InterviewSnapshot {
   speaking: boolean;
   pendingSpeech: number;
   charsSpoken: number;
+  /** Veces que se descartó tu propia voz traducida al volver a entrar por el audio del sistema */
+  echoesBlocked: number;
+  /** Se usa una fuente aislada para el audio de ellos (no hay riesgo de que entre tu propia voz) */
+  isolated: boolean;
   error: string;
   startedAt: number | null;
 }
@@ -53,7 +58,7 @@ export interface InterviewDeps {
   translateText: (text: string, from: string, to: string, settings: AppSettings, recent?: string[]) => Promise<TranslateResult>;
   synthesizeSpeech: (text: string, settings: AppSettings) => Promise<{ audio?: Blob; error?: string }>;
   capture: {
-    startCapture: (o: { micDeviceId?: string; onSegment?: (s: MeetingSegment) => void }) => Promise<{ success: boolean; error?: string }>;
+    startCapture: (o: { micDeviceId?: string; systemDeviceId?: string; onSegment?: (s: MeetingSegment) => void }) => Promise<{ success: boolean; error?: string }>;
     stop: () => Promise<void>;
   };
   createPlayer: (onChange: (pending: number, speaking: boolean) => void) => Pick<SpeechPlayer, 'setSink' | 'enqueue' | 'stop'>;
@@ -86,6 +91,8 @@ export class InterviewSession {
     speaking: false,
     pendingSpeech: 0,
     charsSpoken: 0,
+    echoesBlocked: 0,
+    isolated: false,
     error: '',
     startedAt: null
   };
@@ -94,6 +101,8 @@ export class InterviewSession {
   private chains: Record<LineSide, Promise<void>> = { me: Promise.resolve(), them: Promise.resolve() };
   private player: ReturnType<InterviewDeps['createPlayer']>;
   private seq = 0;
+  /** Lo que mi voz sintética dijo hace poco: sirve para reconocer su eco en el audio del sistema */
+  private spoken: SpokenRecord[] = [];
   private generation = 0; // se incrementa al detener para ignorar trabajo pendiente
 
   constructor(private getSettings: () => AppSettings, private deps: InterviewDeps = defaultDeps) {
@@ -166,10 +175,14 @@ export class InterviewSession {
 
     this.generation++;
     this.chains = { me: Promise.resolve(), them: Promise.resolve() };
+    this.spoken = [];
+    const systemDeviceId = settings.interviewTheirAudioDeviceId?.trim() || undefined;
     this.patch({
       lines: [],
       error: '',
       charsSpoken: 0,
+      echoesBlocked: 0,
+      isolated: Boolean(systemDeviceId),
       canSpeak,
       autoSpeak: options.autoSpeak && canSpeak
     });
@@ -177,6 +190,7 @@ export class InterviewSession {
     const gen = this.generation;
     const res = await this.deps.capture.startCapture({
       micDeviceId: options.micDeviceId,
+      systemDeviceId,
       onSegment: (seg) => {
         if (gen === this.generation) this.enqueueSegment(seg);
       }
@@ -229,6 +243,13 @@ export class InterviewSession {
     }
     if (!stt.text) return; // silencio o ruido
 
+    // El audio del sistema también oye mi propia voz traducida: si es eso, no es «Ellos», es eco.
+    // (Con una fuente aislada no puede ocurrir, así que no se filtra nada.)
+    if (side === 'them' && !this.snapshot.isolated && isLikelyEcho(stt.text, this.spoken)) {
+      this.patch({ echoesBlocked: this.snapshot.echoesBlocked + 1 });
+      return;
+    }
+
     const line = this.addLine(side, stt.text);
     const tr = await this.deps.translateText(stt.text, from, to, settings, this.recentOriginals());
 
@@ -265,6 +286,7 @@ export class InterviewSession {
     }
 
     this.player.enqueue(res.audio);
+    this.spoken = pruneSpoken([...this.spoken, { text: line.translation, at: Date.now() }]);
     this.updateLine(lineId, { speaking: false, spoken: true });
     this.patch({ charsSpoken: this.snapshot.charsSpoken + line.translation.length });
   }

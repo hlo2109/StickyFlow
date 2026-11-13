@@ -79,6 +79,7 @@ export interface AppSettings {
   interviewMyLang?: string; // idioma en el que hablas, p. ej. 'es'
   interviewTheirLang?: string; // idioma de la otra persona, p. ej. 'en'
   interviewOutputDeviceId?: string; // micrófono virtual (VB-CABLE) donde sale tu voz traducida
+  interviewTheirAudioDeviceId?: string; // fuente del audio de ellos: vacío = audio del sistema (todo); o un dispositivo de entrada aislado
   interviewContext?: string; // contexto para traducir mejor términos técnicos
 
   // Privacy & Data Security

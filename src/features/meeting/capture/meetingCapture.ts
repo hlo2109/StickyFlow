@@ -16,6 +16,12 @@ export type { MeetingSegment, AudioSource } from './speechSegmenter';
 
 export interface StartCaptureOptions {
   micDeviceId?: string;
+  /**
+   * Fuente del audio de los demás. Vacío = audio del sistema (loopback: captura TODO lo que suena, incluida
+   * tu propia voz traducida). Con un id de dispositivo de entrada (p. ej. la salida de un cable virtual)
+   * se captura SOLO ese dispositivo, sin mezclar nada más.
+   */
+  systemDeviceId?: string;
   /** Se llama cada vez que se completa una frase. Si no se pasa, igual se acumulan en getSegments(). */
   onSegment?: (segment: MeetingSegment) => void;
 }
@@ -52,9 +58,31 @@ export class MeetingCapture {
         options.onSegment?.(segment);
       };
 
-      // 1. Audio del sistema (loopback). Electron exige pedir también el video; se descarta enseguida.
+      // 1. Audio de los demás: dispositivo aislado (si se eligió) o audio del sistema (loopback).
+      //    Electron exige pedir también el video en el loopback; se descarta enseguida.
       let systemAvailable = false;
       try {
+        if (options.systemDeviceId) {
+          const isolated = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { exact: options.systemDeviceId },
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false
+            },
+            video: false
+          });
+          this.streams.push(isolated);
+          this.segmenters.push(
+            new SpeechSegmenter({
+              source: 'system',
+              audioContext: this.audioCtx,
+              stream: isolated,
+              onSegment: handleSegment
+            })
+          );
+          systemAvailable = true;
+        } else {
         const display = await navigator.mediaDevices.getDisplayMedia({
           video: true,
           audio: {
@@ -78,6 +106,7 @@ export class MeetingCapture {
             })
           );
           systemAvailable = true;
+        }
         }
       } catch (e) {
         console.warn('[MeetingCapture] sin audio del sistema:', e);

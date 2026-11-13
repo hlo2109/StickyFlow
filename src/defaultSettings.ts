@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   interviewMyLang: 'es',
   interviewTheirLang: 'en',
   interviewOutputDeviceId: '',
+  interviewTheirAudioDeviceId: '',
   interviewContext: '',
   enablePrivacyMasking: true,
   maskSensitiveRegex: true,

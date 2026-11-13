@@ -114,14 +114,15 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
   const [outputs, setOutputs] = useState<AudioDeviceInfo[]>([]);
   const [micId, setMicId] = useState('');
   const [outputId, setOutputId] = useState(settings.interviewOutputDeviceId || '');
+  const [theirSourceId, setTheirSourceId] = useState(settings.interviewTheirAudioDeviceId || '');
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
 
   // El micrófono virtual elegido aquí se usa en vivo y se recuerda para la próxima vez.
   const effectiveSettings = useMemo<AppSettings>(
-    () => ({ ...settings, interviewOutputDeviceId: outputId }),
-    [settings, outputId]
+    () => ({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: theirSourceId }),
+    [settings, outputId, theirSourceId]
   );
   const { session, snapshot } = useInterviewSession(effectiveSettings);
 
@@ -152,6 +153,15 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
     setOutputId(id);
     window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: id });
   };
+
+  const handleTheirSourceChange = (id: string) => {
+    setTheirSourceId(id);
+    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: id });
+  };
+
+  // Fuentes válidas para «Ellos»: nunca tu propio micrófono ni el cable por donde sale tu voz traducida
+  // (ahí iría justo lo que NO queremos oír como si fuera de ellos).
+  const theirSources = mics.filter((d) => d.id !== micId && !/cable output/i.test(d.label) && !/^(default|communications)/i.test(d.label));
 
   const sttReady = Boolean(settings.deepgramApiKey?.trim() || settings.hfApiKey?.trim());
   const translateReady = isAiReady(settings);
@@ -283,6 +293,37 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           {autoSpeak && voiceReady && sinkReady ? <Volume2 size={14} /> : <VolumeX size={14} />}
           {autoSpeak && voiceReady && sinkReady ? 'Hablar automático' : 'Hablar manual'}
         </button>
+      </div>
+
+      {/* Fuente del audio de ellos */}
+      <div className="px-4 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-4 gap-y-1.5 shrink-0 text-xs">
+        <label className="flex items-center gap-2 min-w-0">
+          <span className="text-slate-400 shrink-0">Audio de ellos</span>
+          <select
+            value={theirSourceId}
+            onChange={(e) => handleTheirSourceChange(e.target.value)}
+            disabled={snapshot.running}
+            title="Audio del sistema oye todo lo que suena, incluida tu voz traducida (se filtra el eco). Un dispositivo de entrada aislado no mezcla nada más."
+            className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 max-w-[22rem] disabled:opacity-60"
+          >
+            <option value="">Audio del sistema (todo lo que suena)</option>
+            {theirSources.map((d) => (
+              <option key={d.id} value={d.id}>
+                Aislado: {d.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className={`text-[11px] ${theirSourceId ? 'text-emerald-400' : 'text-slate-500'}`}>
+          {theirSourceId
+            ? '✓ Fuente aislada: tu voz traducida no puede colarse'
+            : 'Se filtra automáticamente el eco de tu voz traducida'}
+        </span>
+        {snapshot.echoesBlocked > 0 && (
+          <span className="text-[11px] text-sky-400" title="Veces que tu propia voz traducida volvió a entrar por el audio del sistema y se descartó">
+            🔇 {snapshot.echoesBlocked} eco{snapshot.echoesBlocked === 1 ? '' : 's'} de tu voz filtrado{snapshot.echoesBlocked === 1 ? '' : 's'}
+          </span>
+        )}
       </div>
 
       {/* Conversación */}
