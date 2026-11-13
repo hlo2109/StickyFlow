@@ -255,6 +255,8 @@ export const Editor: React.FC<EditorProps> = ({
         } else if (editor) {
           editor.chain().focus().insertContent(textToInsert).run();
         }
+      } else if (transRes.success) {
+        alert('No se detectó voz en la grabación. Intenta de nuevo hablando más cerca del micrófono.');
       } else {
         alert(transRes.error || 'No se pudo transcribir el audio. Ingresa tu API Key de Hugging Face en Ajustes para activar Whisper.');
       }

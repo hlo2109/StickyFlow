@@ -21,7 +21,9 @@ import {
   Mic
 } from 'lucide-react';
 import { Note, AppSettings, MeetingDoubt } from '../types';
-import { meetingAudioCapture, getAudioDevices, AudioDeviceInfo, transcribeAudio } from '../utils/audioService';
+import { getAudioDevices, AudioDeviceInfo } from '../utils/audioService';
+import { meetingCapture, MeetingSegment } from '../features/meeting/capture/meetingCapture';
+import { transcribeAudio } from '../features/meeting/stt/whisper';
 import { executeAiTask, analyzeMeetingDoubtRadar } from '../utils/aiService';
 
 interface MeetingModalProps {
@@ -72,7 +74,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   recordingModeRef.current = recordingMode;
 
   // Queue references to process chunks sequentially
-  const sliceQueueRef = useRef<Blob[]>([]);
+  const sliceQueueRef = useRef<MeetingSegment[]>([]);
   const isProcessingQueueRef = useRef(false);
   const transcriptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -168,20 +170,31 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
+  // Tú hablas en el idioma de los ajustes; la otra parte se detecta sola (puede ser otro idioma).
+  const transcribeSegment = (seg: MeetingSegment) =>
+    transcribeAudio(seg.blob, settings, { language: seg.source === 'system' ? 'auto' : settings.speechLang });
+
+  const speakerLabel = (seg: MeetingSegment) => (seg.source === 'mic' ? 'Tú' : 'Participante');
+
+  const appendTranscript = (prev: string, seg: MeetingSegment, text: string) => {
+    const sep = prev.trim() ? '\n' : '';
+    return `${prev.trim()}${sep}[${speakerLabel(seg)}] ${text}`;
+  };
+
   // Process a newly recorded audio slice in real time
   const processSliceQueue = async () => {
     if (isProcessingQueueRef.current || sliceQueueRef.current.length === 0) return;
     isProcessingQueueRef.current = true;
 
     while (sliceQueueRef.current.length > 0) {
-      const sliceBlob = sliceQueueRef.current.shift();
-      if (!sliceBlob || sliceBlob.size < 800) continue;
+      const segment = sliceQueueRef.current.shift();
+      if (!segment || segment.blob.size < 800) continue;
 
       setIsChunkTranscribing(true);
       setStatusMessage('Transcribiendo segmento en tiempo real...');
 
       try {
-        const transRes = await transcribeAudio(sliceBlob, settings);
+        const transRes = await transcribeSegment(segment);
         if (transRes.success && transRes.text && transRes.text.trim()) {
           const sliceText = transRes.text.trim();
           setErrorMessage('');
@@ -235,9 +248,9 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     isProcessingQueueRef.current = false;
   };
 
-  const handleAudioSlice = (sliceBlob: Blob) => {
-    if (!sliceBlob || sliceBlob.size < 800) return;
-    sliceQueueRef.current.push(sliceBlob);
+  const handleAudioSlice = (segment: MeetingSegment) => {
+    if (!segment || segment.blob.size < 800) return;
+    sliceQueueRef.current.push(segment);
     processSliceQueue();
   };
 
@@ -252,7 +265,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     );
 
     const onChunkCallback = mode === 'live' ? handleAudioSlice : undefined;
-    const res = await meetingAudioCapture.startCapture(selectedMicId, onChunkCallback, 15000);
+    const res = await meetingCapture.startCapture({ micDeviceId: selectedMicId, onSegment: onChunkCallback });
     if (!res.success) {
       setErrorMessage(res.error || 'No se pudo iniciar la captura de audio.');
       setStatusMessage('');
@@ -279,10 +292,8 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     if (currentMode === 'live') {
       setStatusMessage('Finalizando y procesando último segmento...');
       try {
-        const finalBlob = await meetingAudioCapture.stop();
-        if (finalBlob && finalBlob.size > 1000) {
-          handleAudioSlice(finalBlob);
-        }
+        // stop() entrega por onSegment la última frase pendiente.
+        await meetingCapture.stop();
       } catch (e) {
         console.warn('Error stopping capture:', e);
       }
@@ -293,36 +304,24 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
       setIsChunkTranscribing(true);
 
       try {
-        const finalBlob = await meetingAudioCapture.stop();
-        const slices = meetingAudioCapture.getRecordedSlices();
+        await meetingCapture.stop();
+        const segments = meetingCapture.getSegments();
 
-        if (slices.length > 0) {
+        if (segments.length > 0) {
           let accumulatedText = transcriptText;
-          for (let i = 0; i < slices.length; i++) {
-            setStatusMessage(`🎙️ Transcribiendo audio (${i + 1}/${slices.length})...`);
-            const transRes = await transcribeAudio(slices[i], settings);
+          for (let i = 0; i < segments.length; i++) {
+            setStatusMessage(`🎙️ Transcribiendo audio (${i + 1}/${segments.length})...`);
+            const transRes = await transcribeSegment(segments[i]);
             if (transRes.success && transRes.text && transRes.text.trim()) {
-              const sep = accumulatedText.trim() ? '\n' : '';
-              accumulatedText = `${accumulatedText.trim()}${sep}${transRes.text.trim()}`;
+              accumulatedText = appendTranscript(accumulatedText, segments[i], transRes.text.trim());
               setTranscriptText(accumulatedText);
+            } else if (!transRes.success && transRes.error) {
+              setErrorMessage(transRes.error);
             }
           }
           setStatusMessage('✓ Transcripción completada. Minuta lista para generar.');
-        } else if (finalBlob && finalBlob.size > 1000) {
-          setStatusMessage('🎙️ Transcribiendo audio de la reunión...');
-          const transRes = await transcribeAudio(finalBlob, settings);
-          if (transRes.success && transRes.text && transRes.text.trim()) {
-            setTranscriptText(prev => {
-              const sep = prev.trim() ? '\n' : '';
-              return `${prev.trim()}${sep}${transRes.text.trim()}`;
-            });
-            setStatusMessage('✓ Transcripción completada. Minuta lista para generar.');
-          } else if (transRes.error) {
-            setErrorMessage(transRes.error);
-            setStatusMessage('Error al transcribir el audio.');
-          }
         } else {
-          setStatusMessage('⏹️ Grabación finalizada (audio muy corto o sin sonido detectado).');
+          setStatusMessage('⏹️ Grabación finalizada (no se detectó voz).');
         }
       } catch (e: any) {
         console.warn('Error processing normal recording:', e);
