@@ -86,10 +86,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getColorBg = (color: string) => {
     switch (color) {
       case 'yellow': return 'bg-amber-400';
-      case 'blue': return 'bg-sky-400';
-      case 'green': return 'bg-emerald-400';
-      case 'purple': return 'bg-purple-400';
+      case 'orange': return 'bg-orange-400';
+      case 'coral': return 'bg-rose-400';
       case 'pink': return 'bg-pink-400';
+      case 'purple': return 'bg-purple-400';
+      case 'indigo': return 'bg-indigo-400';
+      case 'blue': return 'bg-sky-400';
+      case 'teal': return 'bg-teal-400';
+      case 'green': return 'bg-emerald-400';
       case 'dark': return 'bg-slate-600';
       default: return 'bg-amber-400';
     }

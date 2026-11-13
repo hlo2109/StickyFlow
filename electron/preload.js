@@ -9,11 +9,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOpacity: (val) => ipcRenderer.invoke('window:setOpacity', val),
   resizeWindow: (width, height) => ipcRenderer.invoke('window:resize', { width, height }),
 
-  // Storage
+  // Storage & Backup (Cloud & Local)
   loadNotes: () => ipcRenderer.invoke('notes:load'),
   saveNotes: (notes) => ipcRenderer.invoke('notes:save', notes),
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  getBackupInfo: () => ipcRenderer.invoke('backup:get-info'),
+  createBackup: () => ipcRenderer.invoke('backup:create-now'),
+  listBackups: () => ipcRenderer.invoke('backup:list'),
+  restoreBackup: (filePath) => ipcRenderer.invoke('backup:restore-file', filePath),
+  exportBackupDialog: () => ipcRenderer.invoke('backup:export-dialog'),
+  importBackupDialog: () => ipcRenderer.invoke('backup:import-dialog'),
+  changeStorageDir: (newPath, copyExisting) => ipcRenderer.invoke('backup:change-storage-dir', newPath, copyExisting),
+  selectFolderDialog: () => ipcRenderer.invoke('backup:select-folder-dialog'),
+  cleanNotesGarbage: () => ipcRenderer.invoke('notes:clean-garbage'),
+
+  // Independent Windows (Configuración y Dictado/Reunión)
+  openSettingsWindow: () => ipcRenderer.invoke('window:open-settings'),
+  openMeetingWindow: (noteId) => ipcRenderer.invoke('window:open-meeting', noteId),
 
   // File system & Folder integration for Claude / User
   openNotesFolder: () => ipcRenderer.invoke('notes:openFolder'),
@@ -51,6 +64,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setDockMouseIgnore: (ignore) => ipcRenderer.invoke('dock:set-ignore-mouse', ignore),
   setDockPosition: (pos) => ipcRenderer.invoke('dock:set-position', pos),
   setDockAlwaysOnTop: (val) => ipcRenderer.invoke('dock:set-always-on-top', val),
+  bringDockToTop: () => ipcRenderer.invoke('dock:bring-to-top'),
   openNoteInMain: (noteId) => ipcRenderer.invoke('dock:open-note', noteId),
   openNoteWindow: (noteId) => ipcRenderer.invoke('dock:open-note-window', noteId),
   toggleDockPin: (noteId) => ipcRenderer.invoke('dock:toggle-pin', noteId),
@@ -67,6 +81,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onDockedIdsChanged: (callback) => {
     ipcRenderer.on('dock:ids-changed', (_event, ids) => callback(ids));
+  },
+
+  // Text-to-Speech context menu triggers
+  onTtsSpeakSelection: (callback) => {
+    ipcRenderer.removeAllListeners('tts:speak-selection');
+    ipcRenderer.on('tts:speak-selection', (_event, text) => callback(text));
+  },
+  onTtsSpeakCurrentNote: (callback) => {
+    ipcRenderer.removeAllListeners('tts:speak-current-note');
+    ipcRenderer.on('tts:speak-current-note', () => callback());
+  },
+
+  // Meeting window target note update
+  onMeetingSetNoteId: (callback) => {
+    ipcRenderer.on('meeting:set-note-id', (_event, noteId) => callback(noteId));
   }
 });
 

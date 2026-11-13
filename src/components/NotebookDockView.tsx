@@ -7,7 +7,9 @@ import {
   Compass,
   Plus,
   StickyNote,
-  X
+  X,
+  SlidersHorizontal,
+  Settings as SettingsIcon
 } from 'lucide-react';
 import { Note, AppSettings, NoteColor } from '../types';
 
@@ -35,29 +37,41 @@ const COLOR_THEMES: Record<NoteColor, {
     cardHeaderBg: 'bg-amber-100/90 dark:bg-amber-950/80 border-b border-amber-200 dark:border-amber-900',
     badge: 'bg-amber-200/90 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'
   },
-  blue: {
-    tabBg: 'bg-[#bae6fd]',
-    tabHover: 'bg-[#7dd3fc]',
-    tabBorder: 'border-[#0284c7]',
-    tabText: 'text-sky-950',
-    accent: '#0284c7',
-    cardBg: 'bg-[#f0f9ff] dark:bg-[#071926]',
-    cardBorder: 'border-[#38bdf8] dark:border-[#0369a1]',
-    cardText: 'text-sky-950 dark:text-sky-100',
-    cardHeaderBg: 'bg-sky-100/90 dark:bg-sky-950/80 border-b border-sky-200 dark:border-sky-900',
-    badge: 'bg-sky-200/90 text-sky-900 dark:bg-sky-900/60 dark:text-sky-200'
+  orange: {
+    tabBg: 'bg-[#fed7aa]',
+    tabHover: 'bg-[#fdba74]',
+    tabBorder: 'border-[#ea580c]',
+    tabText: 'text-amber-950',
+    accent: '#ea580c',
+    cardBg: 'bg-[#fff7ed] dark:bg-[#201007]',
+    cardBorder: 'border-[#fb923c] dark:border-[#ea580c]',
+    cardText: 'text-amber-950 dark:text-orange-100',
+    cardHeaderBg: 'bg-orange-100/90 dark:bg-orange-950/80 border-b border-orange-200 dark:border-orange-900',
+    badge: 'bg-orange-200/90 text-orange-900 dark:bg-orange-900/60 dark:text-orange-200'
   },
-  green: {
-    tabBg: 'bg-[#bbf7d0]',
-    tabHover: 'bg-[#86efac]',
-    tabBorder: 'border-[#16a34a]',
-    tabText: 'text-emerald-950',
-    accent: '#16a34a',
-    cardBg: 'bg-[#f0fdf4] dark:bg-[#061f10]',
-    cardBorder: 'border-[#4ade80] dark:border-[#15803d]',
-    cardText: 'text-emerald-950 dark:text-emerald-100',
-    cardHeaderBg: 'bg-emerald-100/90 dark:bg-emerald-950/80 border-b border-emerald-200 dark:border-emerald-900',
-    badge: 'bg-emerald-200/90 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200'
+  coral: {
+    tabBg: 'bg-[#fecaca]',
+    tabHover: 'bg-[#fca5a5]',
+    tabBorder: 'border-[#e11d48]',
+    tabText: 'text-rose-950',
+    accent: '#e11d48',
+    cardBg: 'bg-[#fff1f2] dark:bg-[#240a10]',
+    cardBorder: 'border-[#f87171] dark:border-[#dc2626]',
+    cardText: 'text-rose-950 dark:text-rose-100',
+    cardHeaderBg: 'bg-red-100/90 dark:bg-red-950/80 border-b border-red-200 dark:border-red-900',
+    badge: 'bg-red-200/90 text-red-900 dark:bg-red-900/60 dark:text-red-200'
+  },
+  pink: {
+    tabBg: 'bg-[#fbcfe8]',
+    tabHover: 'bg-[#f9a8d4]',
+    tabBorder: 'border-[#db2777]',
+    tabText: 'text-rose-950',
+    accent: '#db2777',
+    cardBg: 'bg-[#fff1f2] dark:bg-[#260813]',
+    cardBorder: 'border-[#f472b6] dark:border-[#be185d]',
+    cardText: 'text-rose-950 dark:text-rose-100',
+    cardHeaderBg: 'bg-rose-100/90 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-900',
+    badge: 'bg-rose-200/90 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
   },
   purple: {
     tabBg: 'bg-[#e9d5ff]',
@@ -71,17 +85,53 @@ const COLOR_THEMES: Record<NoteColor, {
     cardHeaderBg: 'bg-purple-100/90 dark:bg-purple-950/80 border-b border-purple-200 dark:border-purple-900',
     badge: 'bg-purple-200/90 text-purple-900 dark:bg-purple-900/60 dark:text-purple-200'
   },
-  pink: {
-    tabBg: 'bg-[#fbcfe8]',
-    tabHover: 'bg-[#f9a8d4]',
-    tabBorder: 'border-[#db2777]',
-    tabText: 'text-rose-950',
-    accent: '#db2777',
-    cardBg: 'bg-[#fff1f2] dark:bg-[#260813]',
-    cardBorder: 'border-[#f472b6] dark:border-[#be185d]',
-    cardText: 'text-rose-950 dark:text-rose-100',
-    cardHeaderBg: 'bg-rose-100/90 dark:bg-rose-950/80 border-b border-rose-200 dark:border-rose-900',
-    badge: 'bg-rose-200/90 text-rose-900 dark:bg-rose-900/60 dark:text-rose-200'
+  indigo: {
+    tabBg: 'bg-[#c7d2fe]',
+    tabHover: 'bg-[#a5b4fc]',
+    tabBorder: 'border-[#4f46e5]',
+    tabText: 'text-indigo-950',
+    accent: '#4f46e5',
+    cardBg: 'bg-[#eef2ff] dark:bg-[#10122e]',
+    cardBorder: 'border-[#818cf8] dark:border-[#4338ca]',
+    cardText: 'text-indigo-950 dark:text-indigo-100',
+    cardHeaderBg: 'bg-indigo-100/90 dark:bg-indigo-950/80 border-b border-indigo-200 dark:border-indigo-900',
+    badge: 'bg-indigo-200/90 text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-200'
+  },
+  blue: {
+    tabBg: 'bg-[#bae6fd]',
+    tabHover: 'bg-[#7dd3fc]',
+    tabBorder: 'border-[#0284c7]',
+    tabText: 'text-sky-950',
+    accent: '#0284c7',
+    cardBg: 'bg-[#f0f9ff] dark:bg-[#071926]',
+    cardBorder: 'border-[#38bdf8] dark:border-[#0369a1]',
+    cardText: 'text-sky-950 dark:text-sky-100',
+    cardHeaderBg: 'bg-sky-100/90 dark:bg-sky-950/80 border-b border-sky-200 dark:border-sky-900',
+    badge: 'bg-sky-200/90 text-sky-900 dark:bg-sky-900/60 dark:text-sky-200'
+  },
+  teal: {
+    tabBg: 'bg-[#99f6e4]',
+    tabHover: 'bg-[#5eead4]',
+    tabBorder: 'border-[#0d9488]',
+    tabText: 'text-teal-950',
+    accent: '#0d9488',
+    cardBg: 'bg-[#f0fdfa] dark:bg-[#04201e]',
+    cardBorder: 'border-[#2dd4bf] dark:border-[#0f766e]',
+    cardText: 'text-teal-950 dark:text-teal-100',
+    cardHeaderBg: 'bg-teal-100/90 dark:bg-teal-950/80 border-b border-teal-200 dark:border-teal-900',
+    badge: 'bg-teal-200/90 text-teal-900 dark:bg-teal-900/60 dark:text-teal-200'
+  },
+  green: {
+    tabBg: 'bg-[#bbf7d0]',
+    tabHover: 'bg-[#86efac]',
+    tabBorder: 'border-[#16a34a]',
+    tabText: 'text-emerald-950',
+    accent: '#16a34a',
+    cardBg: 'bg-[#f0fdf4] dark:bg-[#061f10]',
+    cardBorder: 'border-[#4ade80] dark:border-[#15803d]',
+    cardText: 'text-emerald-950 dark:text-emerald-100',
+    cardHeaderBg: 'bg-emerald-100/90 dark:bg-emerald-950/80 border-b border-emerald-200 dark:border-emerald-900',
+    badge: 'bg-emerald-200/90 text-emerald-900 dark:bg-emerald-900/60 dark:text-emerald-200'
   },
   dark: {
     tabBg: 'bg-[#1e293b]',
@@ -131,6 +181,7 @@ export const NotebookDockView: React.FC = () => {
 
   const [dockedIds, setDockedIds] = useState<string[]>([]);
   const [hoveredNoteId, setHoveredNoteId] = useState<string | null>(null);
+  const [isToolbarHovered, setIsToolbarHovered] = useState<boolean>(false);
 
   const isMouseIgnoringRef = useRef<boolean>(true);
 
@@ -152,6 +203,9 @@ export const NotebookDockView: React.FC = () => {
       if (window.electronAPI?.getDockedNotes) {
         const ids = await window.electronAPI.getDockedNotes();
         if (Array.isArray(ids)) setDockedIds(ids);
+      }
+      if (window.electronAPI?.bringDockToTop) {
+        window.electronAPI.bringDockToTop();
       }
     };
 
@@ -196,22 +250,48 @@ export const NotebookDockView: React.FC = () => {
         setMouseIgnore(false);
       } else {
         setMouseIgnore(true);
+        setHoveredNoteId(null);
+        setIsToolbarHovered(false);
       }
     };
 
+    const handleMouseLeaveWindow = () => {
+      setMouseIgnore(true);
+      setHoveredNoteId(null);
+      setIsToolbarHovered(false);
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseleave', handleMouseLeaveWindow);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseleave', handleMouseLeaveWindow);
+    };
   }, []);
 
   // Hover handlers for tabs
   const handleTabMouseEnter = (noteId: string) => {
     setMouseIgnore(false);
     setHoveredNoteId(noteId);
+    if (isAlwaysOnTop && window.electronAPI?.bringDockToTop) {
+      window.electronAPI.bringDockToTop();
+    }
   };
 
   const handleTabMouseLeave = () => {
     setHoveredNoteId(null);
-    setMouseIgnore(true);
+  };
+
+  const handleToolbarMouseEnter = () => {
+    setMouseIgnore(false);
+    setIsToolbarHovered(true);
+    if (isAlwaysOnTop && window.electronAPI?.bringDockToTop) {
+      window.electronAPI.bringDockToTop();
+    }
+  };
+
+  const handleToolbarMouseLeave = () => {
+    setIsToolbarHovered(false);
   };
 
   // Action handlers
@@ -240,6 +320,9 @@ export const NotebookDockView: React.FC = () => {
     setSettings(nextSettings);
     if (window.electronAPI?.setDockAlwaysOnTop) {
       await window.electronAPI.setDockAlwaysOnTop(nextVal);
+    }
+    if (nextVal && window.electronAPI?.bringDockToTop) {
+      await window.electronAPI.bringDockToTop();
     }
   };
 
@@ -286,80 +369,114 @@ export const NotebookDockView: React.FC = () => {
 
       {/* Dock Tabs Container + Toolbar */}
       <div
-        className={`dock-interactive flex items-center transition-all duration-200 z-30 ${
+        className={`pointer-events-none flex transition-all duration-200 z-30 ${
           isVertical ? 'flex-col gap-2' : 'flex-row gap-2'
         } ${position === 'right' ? 'items-end' : ''} ${
           position === 'left' ? 'items-start' : ''
         } ${position === 'top' ? 'items-center' : ''} ${
           position === 'bottom' ? 'items-center' : ''
         }`}
-        onMouseEnter={() => setMouseIgnore(false)}
-        onMouseLeave={handleTabMouseLeave}
       >
-        {/* Quick Toolbar Pill */}
+        {/* Collapsible Quick Toolbar Tab */}
         <div
-          className={`dock-interactive flex items-center gap-1 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-full shadow-lg border border-slate-200/90 dark:border-slate-700/90 p-1 text-slate-600 dark:text-slate-300 text-xs transition-opacity opacity-85 hover:opacity-100 ${
-            position === 'right' ? 'mr-1' : position === 'left' ? 'ml-1' : ''
-          }`}
-          title="Herramientas de Separadores"
+          onMouseEnter={handleToolbarMouseEnter}
+          onMouseLeave={handleToolbarMouseLeave}
+          className={`dock-interactive pointer-events-auto cursor-pointer flex items-center transition-all duration-200 ease-out border shadow-md bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 ${
+            position === 'right'
+              ? `rounded-l-xl border-r-0 justify-start pl-2.5 ${isToolbarHovered ? 'w-52 pr-2 shadow-xl' : 'w-9 pr-0'}`
+              : position === 'left'
+              ? `rounded-r-xl border-l-0 justify-start pl-2 ${isToolbarHovered ? 'w-52 pr-2.5 shadow-xl' : 'w-9 pr-0'}`
+              : position === 'top'
+              ? `rounded-b-xl border-t-0 justify-start pt-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-52' : 'h-8 px-2 w-10'}`
+              : `rounded-t-xl border-b-0 justify-start pb-2 ${isToolbarHovered ? 'h-auto py-2 px-2.5 shadow-xl w-52' : 'h-8 px-2 w-10'}`
+          } overflow-hidden h-8`}
+          title={isToolbarHovered ? 'Herramientas de Separadores' : 'Opciones y herramientas'}
         >
-          {/* Toggle Titles: Show / Hide */}
-          <button
-            onClick={handleToggleTitles}
-            className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title={showTitles ? 'Ocultar nombres (Modo compacto)' : 'Mostrar nombres de notas'}
-          >
-            {showTitles ? <Eye size={12} className="text-blue-600 dark:text-blue-400" /> : <EyeOff size={12} />}
-          </button>
-
-          {/* Toggle Always on Top for Dock */}
-          <button
-            onClick={handleToggleAlwaysOnTop}
-            className={`p-1 rounded-full transition-colors ${
-              isAlwaysOnTop
-                ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
-                : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400'
+          {/* Edge Accent Indicator */}
+          <div
+            className={`shrink-0 flex items-center justify-center ${
+              isToolbarHovered ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
             }`}
-            title={
-              isAlwaysOnTop
-                ? 'Separadores siempre por encima de las ventanas (Activo)'
-                : 'Separadores detrás de las ventanas (Inactivo)'
-            }
           >
-            {isAlwaysOnTop ? <Pin size={12} className="fill-current" /> : <PinOff size={12} />}
-          </button>
+            <SlidersHorizontal size={13} className="shrink-0" />
+          </div>
 
-          {/* Switch Edge: Left / Right / Top / Bottom */}
-          <button
-            onClick={handleRotatePosition}
-            className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title={`Cambiar borde (Actual: ${position})`}
-          >
-            <Compass size={12} className="text-sky-600 dark:text-sky-400" />
-          </button>
+          {/* Expanded Action Buttons */}
+          {isToolbarHovered && (
+            <div className="flex items-center gap-1 ml-1.5 pl-1.5 border-l border-slate-200 dark:border-slate-700 shrink-0 animate-in fade-in duration-150">
+              {/* Toggle Titles: Show / Hide */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleToggleTitles(); }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                title={showTitles ? 'Ocultar nombres (Modo compacto)' : 'Mostrar nombres de notas'}
+              >
+                {showTitles ? <Eye size={12} className="text-blue-600 dark:text-blue-400" /> : <EyeOff size={12} />}
+              </button>
 
-          {/* Open Main StickyFlow Window */}
-          <button
-            onClick={() => handleOpenNote(notes[0]?.id || '')}
-            className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Abrir ventana principal de StickyFlow"
-          >
-            <Plus size={12} className="text-emerald-600 dark:text-emerald-400" />
-          </button>
+              {/* Toggle Always on Top for Dock */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleToggleAlwaysOnTop(); }}
+                className={`p-1 rounded-full transition-colors ${
+                  isAlwaysOnTop
+                    ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+                    : 'hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400'
+                }`}
+                title={
+                  isAlwaysOnTop
+                    ? 'Separadores siempre por encima de las ventanas (Activo - Fijo)'
+                    : 'Separadores detrás de las ventanas (Inactivo)'
+                }
+              >
+                {isAlwaysOnTop ? <Pin size={12} className="fill-current" /> : <PinOff size={12} />}
+              </button>
 
-          {/* Quit StickyFlow Completely */}
-          <button
-            onClick={handleQuitApp}
-            className="p-1 rounded-full hover:bg-red-500 hover:text-white transition-colors"
-            title="Cerrar StickyFlow por completo"
-          >
-            <X size={12} />
-          </button>
+              {/* Switch Edge: Left / Right / Top / Bottom */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleRotatePosition(); }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                title={`Cambiar borde (Actual: ${position})`}
+              >
+                <Compass size={12} className="text-sky-600 dark:text-sky-400" />
+              </button>
+
+              {/* Open Main StickyFlow Window */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleOpenNote(notes[0]?.id || ''); }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                title="Abrir ventana principal de StickyFlow"
+              >
+                <Plus size={12} className="text-emerald-600 dark:text-emerald-400" />
+              </button>
+
+              {/* Open Independent Settings Window */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.electronAPI?.openSettingsWindow) {
+                    window.electronAPI.openSettingsWindow();
+                  }
+                }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                title="Configuración de StickyFlow (Ventana independiente)"
+              >
+                <SettingsIcon size={12} className="text-blue-600 dark:text-blue-400" />
+              </button>
+
+              {/* Quit StickyFlow Completely */}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleQuitApp(); }}
+                className="p-1 rounded-full hover:bg-red-500 hover:text-white transition-colors"
+                title="Cerrar StickyFlow por completo"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Separadores Tabs Stack - Pinned Flush to the Screen Wall */}
         <div
-          className={`dock-interactive flex ${
+          className={`pointer-events-none flex ${
             isVertical
               ? 'flex-col gap-2 max-h-[82vh] overflow-y-auto'
               : 'flex-row gap-2 max-w-[85vw] overflow-x-auto'
@@ -369,7 +486,7 @@ export const NotebookDockView: React.FC = () => {
             /* Empty State: Mini protruding tab */
             <div
               onClick={() => handleOpenNote(notes[0]?.id || '')}
-              className={`dock-interactive cursor-pointer group flex items-center gap-1.5 px-3 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 font-medium text-xs shadow-md border border-amber-400 transition-all ${
+              className={`dock-interactive pointer-events-auto cursor-pointer group flex items-center gap-1.5 px-3 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 font-medium text-xs shadow-md border border-amber-400 transition-all ${
                 position === 'right'
                   ? 'rounded-l-xl border-r-0'
                   : position === 'left'
@@ -420,8 +537,9 @@ export const NotebookDockView: React.FC = () => {
                 <div
                   key={note.id}
                   onMouseEnter={() => handleTabMouseEnter(note.id)}
+                  onMouseLeave={handleTabMouseLeave}
                   onClick={() => handleOpenNote(note.id)}
-                  className={`dock-interactive cursor-pointer flex items-center transition-all duration-200 ease-out relative border shadow-md ${
+                  className={`dock-interactive pointer-events-auto cursor-pointer flex items-center transition-all duration-200 ease-out relative border shadow-md ${
                     theme.tabBg
                   } ${theme.tabBorder} ${theme.tabText} ${positionShapeClasses} ${widthClass} ${
                     isVertical ? 'py-1.5' : ''

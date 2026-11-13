@@ -56,38 +56,21 @@ export async function getAudioDevices(): Promise<{ inputs: AudioDeviceInfo[]; ou
 /**
  * Transcribe an audio Blob using Hugging Face Whisper, Cloudflare Workers AI or local speech
  */
-export async function transcribeAudio(audioBlob: Blob, settings: AppSettings): Promise<{ success: boolean; text?: string; error?: string }> {
+export async function transcribeAudio(
+  audioBlob: Blob,
+  settings: AppSettings,
+  retryCount = 0
+): Promise<{ success: boolean; text?: string; error?: string }> {
   if (!audioBlob || audioBlob.size === 0) {
     return { success: false, error: 'No se grabó ningún audio.' };
   }
 
-  // Option 1: Hugging Face Whisper
   const hfKey = settings.hfApiKey?.trim();
   let lastHfError = '';
+
   if (hfKey) {
+    // Attempt 1: Router OpenAI-compatible audio endpoint with FormData (Most stable in Hugging Face Router v1, avoids CORS drops)
     try {
-      // 1. Try Hugging Face Inference API for Whisper (new router endpoint)
-      const response = await fetch('https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3-turbo', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${hfKey}`,
-          'Content-Type': audioBlob.type || 'audio/webm'
-        },
-        body: audioBlob
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.text?.trim();
-        if (text) {
-          return { success: true, text };
-        }
-      } else {
-        const errText = await response.text();
-        lastHfError = `Error HF ${response.status}: ${errText.substring(0, 120)}`;
-      }
-
-      // 2. Fallback to router OpenAI-compatible audio endpoint
       const formData = new FormData();
       formData.append('file', audioBlob, 'audio.webm');
       formData.append('model', 'openai/whisper-large-v3-turbo');
@@ -104,13 +87,67 @@ export async function transcribeAudio(audioBlob: Blob, settings: AppSettings): P
 
       if (routerResp.ok) {
         const data = await routerResp.json();
-        if (data.text) return { success: true, text: data.text.trim() };
-      } else if (!lastHfError) {
-        lastHfError = `Error router: ${routerResp.statusText}`;
+        if (data.text && data.text.trim()) {
+          return { success: true, text: data.text.trim() };
+        }
+      } else {
+        const errText = await routerResp.text();
+        lastHfError = `Router ${routerResp.status}: ${errText.substring(0, 100)}`;
       }
     } catch (e: any) {
-      console.warn('Hugging Face whisper error:', e);
-      lastHfError = e.message || 'Error de conexión';
+      lastHfError = e.message || 'Error en router audio';
+    }
+
+    // Attempt 2: Hugging Face Serverless Inference API (raw binary)
+    try {
+      const cleanType = audioBlob.type.includes('webm') ? 'audio/webm' : (audioBlob.type || 'audio/webm');
+      const response = await fetch('https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3-turbo', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${hfKey}`,
+          'Content-Type': cleanType
+        },
+        body: audioBlob
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.text?.trim();
+        if (text) {
+          return { success: true, text };
+        }
+      }
+    } catch (e: any) {
+      lastHfError = e.message || 'Error en HF router inference';
+    }
+
+    // Attempt 3: Classic api-inference endpoint
+    try {
+      const cleanType = audioBlob.type.includes('webm') ? 'audio/webm' : (audioBlob.type || 'audio/webm');
+      const classicResp = await fetch('https://api-inference.huggingface.co/models/openai/whisper-large-v3-turbo', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${hfKey}`,
+          'Content-Type': cleanType
+        },
+        body: audioBlob
+      });
+
+      if (classicResp.ok) {
+        const data = await classicResp.json();
+        const text = data.text?.trim();
+        if (text) {
+          return { success: true, text };
+        }
+      }
+    } catch (e: any) {
+      lastHfError = e.message || 'Error en classic api-inference';
+    }
+
+    // If it failed and we haven't retried, pause 1.5s for rate limit to reset and retry once
+    if (retryCount < 1) {
+      await new Promise(r => setTimeout(r, 1500));
+      return transcribeAudio(audioBlob, settings, retryCount + 1);
     }
   }
 
@@ -220,11 +257,24 @@ export class AudioRecorder {
  */
 export class MeetingAudioCapture {
   private mediaStream: MediaStream | null = null;
-  private audioRecorder: MediaRecorder | null = null;
-  private recordedChunks: Blob[] = [];
+  private currentRecorder: MediaRecorder | null = null;
+  private currentSliceChunks: Blob[] = [];
+  private allRecordedChunks: Blob[] = [];
+  private recordedSlices: Blob[] = [];
   private isCapturing: boolean = false;
+  private sliceTimer: any = null;
+  private onChunkCallback: ((blob: Blob) => void) | null = null;
+  private audioCtx: AudioContext | null = null;
 
-  public async startCapture(micDeviceId?: string): Promise<{ success: boolean; error?: string }> {
+  public getRecordedSlices(): Blob[] {
+    return [...this.recordedSlices];
+  }
+
+  public async startCapture(
+    micDeviceId?: string,
+    onChunkReady?: (blob: Blob) => void,
+    chunkIntervalMs: number = 25000
+  ): Promise<{ success: boolean; error?: string }> {
     try {
       // 1. In Electron, request display media with loopback audio enabled
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
@@ -253,33 +303,89 @@ export class MeetingAudioCapture {
 
       // 3. Mix system audio + microphone using Web Audio API
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      const dest = audioCtx.createMediaStreamDestination();
+      this.audioCtx = new AudioCtx();
+      const dest = this.audioCtx.createMediaStreamDestination();
 
       if (sysAudioTracks.length > 0) {
-        const sysSource = audioCtx.createMediaStreamSource(new MediaStream(sysAudioTracks));
+        const sysSource = this.audioCtx.createMediaStreamSource(new MediaStream(sysAudioTracks));
         sysSource.connect(dest);
       }
 
       if (micStream && micStream.getAudioTracks().length > 0) {
-        const micSource = audioCtx.createMediaStreamSource(micStream);
+        const micSource = this.audioCtx.createMediaStreamSource(micStream);
         micSource.connect(dest);
       }
 
       this.mediaStream = dest.stream;
-      this.recordedChunks = [];
+      this.allRecordedChunks = [];
+      this.recordedSlices = [];
+      this.onChunkCallback = onChunkReady || null;
+      this.isCapturing = true;
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-      this.audioRecorder = new MediaRecorder(this.mediaStream, { mimeType });
 
-      this.audioRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          this.recordedChunks.push(e.data);
+      let activeChunks: Blob[] = [];
+
+      const startNextSlice = () => {
+        if (!this.isCapturing || !this.mediaStream) return;
+        const myChunks: Blob[] = [];
+        activeChunks = myChunks;
+        try {
+          const rec = new MediaRecorder(this.mediaStream, { mimeType });
+          rec.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              myChunks.push(e.data);
+              this.allRecordedChunks.push(e.data);
+            }
+          };
+          rec.start(250);
+          this.currentRecorder = rec;
+        } catch (recErr) {
+          console.warn('Error starting slice recorder:', recErr);
         }
       };
 
-      this.audioRecorder.start(300);
-      this.isCapturing = true;
+      const cycleSlice = () => {
+        if (!this.isCapturing || !this.mediaStream) return;
+        const oldRec = this.currentRecorder;
+        const oldChunks = activeChunks;
+
+        // Start next recorder immediately so no speech is missed
+        startNextSlice();
+
+        const processOldChunks = (chunks: Blob[]) => {
+          if (chunks.length > 0) {
+            const sliceBlob = new Blob(chunks, { type: mimeType });
+            if (sliceBlob.size > 800) {
+              this.recordedSlices.push(sliceBlob);
+              if (this.onChunkCallback) {
+                this.onChunkCallback(sliceBlob);
+              }
+            }
+          }
+        };
+
+        if (oldRec && oldRec.state !== 'inactive') {
+          oldRec.onstop = () => {
+            processOldChunks(oldChunks);
+          };
+          try {
+            oldRec.stop();
+          } catch {
+            processOldChunks(oldChunks);
+          }
+        } else {
+          processOldChunks(oldChunks);
+        }
+      };
+
+      // Start initial slice
+      startNextSlice();
+
+      // For Live mode: cycle every chunkIntervalMs (e.g. 15s)
+      // For Normal mode: cycle every 35s silently to keep clean slices ready for transcription on stop
+      const interval = this.onChunkCallback ? chunkIntervalMs : 35000;
+      this.sliceTimer = setInterval(cycleSlice, interval);
 
       return { success: true };
     } catch (err: any) {
@@ -293,28 +399,49 @@ export class MeetingAudioCapture {
 
   public stop(): Promise<Blob | null> {
     return new Promise((resolve) => {
-      if (!this.audioRecorder || !this.isCapturing) {
+      if (!this.isCapturing) {
         resolve(null);
         return;
       }
 
-      this.audioRecorder.onstop = () => {
-        const blob = new Blob(this.recordedChunks, { type: 'audio/webm' });
-        this.recordedChunks = [];
-        this.isCapturing = false;
+      if (this.sliceTimer) {
+        clearInterval(this.sliceTimer);
+        this.sliceTimer = null;
+      }
+
+      this.isCapturing = false;
+
+      const finishAndCleanup = () => {
+        const fullBlob = this.allRecordedChunks.length > 0
+          ? new Blob(this.allRecordedChunks, { type: 'audio/webm' })
+          : null;
+
+        this.allRecordedChunks = [];
 
         if (this.mediaStream) {
           this.mediaStream.getTracks().forEach(t => t.stop());
           this.mediaStream = null;
         }
 
-        resolve(blob);
+        if (this.audioCtx && this.audioCtx.state !== 'closed') {
+          try { this.audioCtx.close(); } catch {}
+          this.audioCtx = null;
+        }
+
+        resolve(fullBlob);
       };
 
-      try {
-        this.audioRecorder.stop();
-      } catch {
-        resolve(null);
+      if (this.currentRecorder && this.currentRecorder.state !== 'inactive') {
+        this.currentRecorder.onstop = () => {
+          finishAndCleanup();
+        };
+        try {
+          this.currentRecorder.stop();
+        } catch {
+          finishAndCleanup();
+        }
+      } else {
+        finishAndCleanup();
       }
     });
   }

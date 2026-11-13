@@ -23,11 +23,16 @@ import {
   Square,
   Loader2,
   Check,
-  Pin
+  Pin,
+  Volume2,
+  VolumeX,
+  Pause,
+  Play
 } from 'lucide-react';
 import { Note, AppSettings } from '../types';
 import { htmlToMarkdown, markdownToHtml } from '../utils/markdown';
 import { audioRecorder, transcribeAudio, getAudioDevices, AudioDeviceInfo } from '../utils/audioService';
+import { ttsService, TtsState } from '../utils/ttsService';
 
 interface EditorProps {
   note: Note;
@@ -59,6 +64,16 @@ export const Editor: React.FC<EditorProps> = ({
   const [inputDevices, setInputDevices] = useState<AudioDeviceInfo[]>([]);
   const [selectedMicId, setSelectedMicId] = useState<string>('');
   const [showMicPicker, setShowMicPicker] = useState(false);
+
+  // Text-To-Speech (Lectura en voz alta) state
+  const [ttsState, setTtsState] = useState<TtsState>(ttsService.getState());
+
+  useEffect(() => {
+    const unsub = ttsService.subscribe((state) => {
+      setTtsState(state);
+    });
+    return () => unsub();
+  }, []);
 
   // Flag to prevent onUpdate from triggering during note transitions
   const isSwitchingRef = useRef(false);
@@ -108,6 +123,8 @@ export const Editor: React.FC<EditorProps> = ({
     editorProps: {
       attributes: {
         class: 'tiptap focus:outline-none p-3 min-h-[220px]',
+        spellcheck: 'true',
+        lang: 'es'
       },
       handlePaste: (view, event) => {
         const items = event.clipboardData?.items;
@@ -172,12 +189,13 @@ export const Editor: React.FC<EditorProps> = ({
     }
   }, [note.id, note.content, note.markdownContent, note.updatedAt]);
 
-  // When switching between different notes, cancel active dictation
+  // When switching between different notes, cancel active dictation & TTS
   useEffect(() => {
     if (isRecordingDictation) {
       audioRecorder.stop();
       setIsRecordingDictation(false);
     }
+    ttsService.stop();
   }, [note.id]);
 
   // Insert current timestamp (bitácora marker) into note
@@ -294,6 +312,85 @@ export const Editor: React.FC<EditorProps> = ({
     });
   };
 
+  // Text-To-Speech Natural Reading Handlers
+  const handleStartRead = () => {
+    const textToRead = isMarkdownMode
+      ? rawMarkdown
+      : (note.markdownContent || htmlToMarkdown(note.content || ''));
+    ttsService.speak(textToRead, {
+      title: note.title,
+      voiceURI: settings.ttsVoice || 'es-MX-DaliaNeural',
+      rate: settings.ttsRate || 1.0,
+      pitch: settings.ttsPitch || 1.0,
+      volume: settings.ttsVolume || 1.0,
+      useNeuralTts: settings.useNeuralTts !== false
+    });
+  };
+
+  const handleStopRead = () => {
+    ttsService.stop();
+  };
+
+  const handlePauseResumeRead = () => {
+    if (ttsState.isPaused) {
+      ttsService.resume({
+        voiceURI: settings.ttsVoice || 'es-MX-DaliaNeural',
+        rate: settings.ttsRate || 1.0,
+        pitch: settings.ttsPitch || 1.0,
+        volume: settings.ttsVolume || 1.0
+      });
+    } else {
+      ttsService.pause();
+    }
+  };
+
+  // IPC listeners from context menu for read aloud actions
+  const noteRef = useRef(note);
+  noteRef.current = note;
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const isMarkdownModeRef = useRef(isMarkdownMode);
+  isMarkdownModeRef.current = isMarkdownMode;
+  const rawMarkdownRef = useRef(rawMarkdown);
+  rawMarkdownRef.current = rawMarkdown;
+
+  useEffect(() => {
+    if (window.electronAPI?.onTtsSpeakSelection) {
+      window.electronAPI.onTtsSpeakSelection((selectedText) => {
+        if (selectedText && selectedText.trim()) {
+          const s = settingsRef.current;
+          ttsService.speak(selectedText, {
+            voiceURI: s.ttsVoice || 'es-MX-DaliaNeural',
+            rate: s.ttsRate || 1.0,
+            pitch: s.ttsPitch || 1.0,
+            volume: s.ttsVolume || 1.0,
+            useNeuralTts: s.useNeuralTts !== false
+          });
+        }
+      });
+    }
+
+    if (window.electronAPI?.onTtsSpeakCurrentNote) {
+      window.electronAPI.onTtsSpeakCurrentNote(() => {
+        const n = noteRef.current;
+        const s = settingsRef.current;
+        const isMd = isMarkdownModeRef.current;
+        const rawMd = rawMarkdownRef.current;
+        const textToRead = isMd
+          ? rawMd
+          : (n.markdownContent || htmlToMarkdown(n.content || ''));
+        ttsService.speak(textToRead, {
+          title: n.title,
+          voiceURI: s.ttsVoice || 'es-MX-DaliaNeural',
+          rate: s.ttsRate || 1.0,
+          pitch: s.ttsPitch || 1.0,
+          volume: s.ttsVolume || 1.0,
+          useNeuralTts: s.useNeuralTts !== false
+        });
+      });
+    }
+  }, []);
+
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
@@ -309,6 +406,8 @@ export const Editor: React.FC<EditorProps> = ({
           value={note.title || ''}
           onChange={handleTitleChange}
           placeholder="Título de la nota..."
+          spellCheck={true}
+          lang="es"
           className="w-full bg-transparent font-semibold text-base sm:text-lg focus:outline-none placeholder-current/40"
         />
         <div className="flex items-center gap-1.5 shrink-0">
@@ -453,6 +552,40 @@ export const Editor: React.FC<EditorProps> = ({
               <span className="hidden sm:inline">Reunión</span>
             </button>
           )}
+          {/* Text-To-Speech Natural Reader Button */}
+          {!ttsState.isPlaying ? (
+            <button
+              type="button"
+              onClick={handleStartRead}
+              className="p-1 px-1.5 rounded hover:bg-black/10 dark:hover:bg-white/15 flex items-center gap-1 font-medium text-[11px] text-sky-700 dark:text-sky-300 transition-all cursor-pointer"
+              title="Leer nota en voz alta (Voz natural latinoamericana)"
+            >
+              <Volume2 size={13} />
+              <span>Leer</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1 bg-sky-100 dark:bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-300 dark:border-sky-800">
+              <button
+                type="button"
+                onClick={handlePauseResumeRead}
+                className="p-0.5 hover:bg-sky-200 dark:hover:bg-sky-900 rounded cursor-pointer text-sky-700 dark:text-sky-300"
+                title={ttsState.isPaused ? "Reanudar lectura" : "Pausar lectura"}
+              >
+                {ttsState.isPaused ? <Play size={11} /> : <Pause size={11} />}
+              </button>
+              <span className="text-[10px] font-semibold text-sky-800 dark:text-sky-200 animate-pulse">
+                {ttsState.isPaused ? 'En pausa' : 'Leyendo...'}
+              </span>
+              <button
+                type="button"
+                onClick={handleStopRead}
+                className="p-0.5 hover:bg-red-200 dark:hover:bg-red-900 rounded cursor-pointer text-red-600"
+                title="Detener lectura"
+              >
+                <VolumeX size={11} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Toggle Mode: WYSIWYG vs Raw Markdown */}
@@ -468,6 +601,34 @@ export const Editor: React.FC<EditorProps> = ({
           <span>{isMarkdownMode ? 'MD Raw' : 'Visual'}</span>
         </button>
       </div>
+
+      {/* Real-time TTS Active Floating Bar */}
+      {ttsState.isPlaying && (
+        <div className="px-3 py-1.5 bg-sky-50 dark:bg-sky-950/70 border-b border-sky-200 dark:border-sky-800 flex items-center justify-between text-xs animate-in fade-in">
+          <div className="flex items-center gap-2 overflow-hidden">
+            <Volume2 size={13} className="text-sky-600 dark:text-sky-400 shrink-0 animate-bounce" />
+            <span className="font-medium text-sky-800 dark:text-sky-200 truncate text-[11px]">
+              {ttsState.currentText ? `"${ttsState.currentText}"` : 'Leyendo nota con entonación natural...'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            <button
+              onClick={handlePauseResumeRead}
+              className="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-700 text-white font-medium text-[10px] flex items-center gap-1 cursor-pointer shadow-xs"
+            >
+              {ttsState.isPaused ? <Play size={10} /> : <Pause size={10} />}
+              <span>{ttsState.isPaused ? 'Reanudar' : 'Pausar'}</span>
+            </button>
+            <button
+              onClick={handleStopRead}
+              className="px-2 py-0.5 rounded hover:bg-red-100 dark:hover:bg-red-950/50 text-red-600 font-medium text-[10px] cursor-pointer"
+            >
+              Detener
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Real-time Dictation Active Floating Bar */}
       {isRecordingDictation && (
@@ -512,6 +673,8 @@ export const Editor: React.FC<EditorProps> = ({
             value={rawMarkdown}
             onChange={handleRawMarkdownChange}
             placeholder="# Escribe contenido en Markdown directamente..."
+            spellCheck={true}
+            lang="es"
             className="w-full h-full p-3 bg-transparent font-mono text-sm resize-none focus:outline-none leading-relaxed"
           />
         ) : (

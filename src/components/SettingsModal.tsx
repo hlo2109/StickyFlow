@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
+  Minus,
+  Pin,
+  PinOff,
   Settings as SettingsIcon,
   Sparkles,
   Bot,
@@ -15,9 +18,19 @@ import {
   ExternalLink,
   Lock,
   Cloud,
-  StickyNote
+  StickyNote,
+  Volume2,
+  RotateCcw,
+  HardDrive,
+  Download,
+  Upload,
+  History,
+  FileJson,
+  CheckCircle2,
+  Trash2
 } from 'lucide-react';
-import { AppSettings, DbMode, RemoteDbProvider } from '../types';
+import { AppSettings, DbMode, RemoteDbProvider, BackupStatusInfo, BackupFileItem } from '../types';
+import { ttsService, TtsVoiceInfo, ALL_NATURAL_VOICES, VoiceLanguageCategory } from '../utils/ttsService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -27,7 +40,12 @@ interface SettingsModalProps {
   onOpenNotesFolder: () => void;
 }
 
-type SettingsTab = 'ai' | 'rag' | 'database' | 'privacy' | 'window';
+type SettingsTab = 'ai' | 'rag' | 'database' | 'privacy' | 'window' | 'tts';
+
+function pathNormalize(p?: string): string {
+  if (!p) return '';
+  return p.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '');
+}
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -44,6 +62,221 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showRemoteDbKey, setShowRemoteDbKey] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Text-To-Speech (TTS) Voices State
+  const [voices, setVoices] = useState<TtsVoiceInfo[]>([]);
+  const [isPlayingTest, setIsPlayingTest] = useState(false);
+  const [ttsLangTab, setTtsLangTab] = useState<VoiceLanguageCategory>('es');
+
+  // Backup & Cloud Sync State
+  const [backupInfo, setBackupInfo] = useState<BackupStatusInfo | null>(null);
+  const [backupsList, setBackupsList] = useState<BackupFileItem[]>([]);
+  const [isCreatingBackup, setIsCreatingBackup] = useState(false);
+  const [backupSuccessMessage, setBackupSuccessMessage] = useState('');
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [showAdvancedDb, setShowAdvancedDb] = useState(false);
+  const [showBackupHistory, setShowBackupHistory] = useState(false);
+
+  // Garbage Cleaning State
+  const [isCleaningGarbage, setIsCleaningGarbage] = useState(false);
+  const [garbageCleanResult, setGarbageCleanResult] = useState<string | null>(null);
+
+  // Standalone window detection & pin state
+  const isStandaloneWindow = typeof window !== 'undefined' && (
+    window.location.search.includes('mode=settings') ||
+    window.location.hash.includes('mode=settings')
+  );
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    if (isStandaloneWindow) {
+      if (window.electronAPI?.getAlwaysOnTop) {
+        window.electronAPI.getAlwaysOnTop().then((val) => setIsPinned(Boolean(val)));
+      }
+      if (window.electronAPI?.onAlwaysOnTopChanged) {
+        window.electronAPI.onAlwaysOnTopChanged((val) => setIsPinned(Boolean(val)));
+      }
+    }
+  }, [isStandaloneWindow]);
+
+  const handleTogglePin = async () => {
+    if (window.electronAPI?.toggleAlwaysOnTop) {
+      const nextVal = await window.electronAPI.toggleAlwaysOnTop();
+      setIsPinned(Boolean(nextVal));
+    } else {
+      setIsPinned(!isPinned);
+    }
+  };
+
+  const refreshBackupData = () => {
+    if (window.electronAPI?.getBackupInfo) {
+      window.electronAPI.getBackupInfo().then((info) => {
+        setBackupInfo(info);
+      }).catch(() => {});
+    }
+    if (window.electronAPI?.listBackups) {
+      window.electronAPI.listBackups().then((list) => {
+        setBackupsList(list);
+      }).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      refreshBackupData();
+      ttsService.getAvailableVoices().then((list) => {
+        setVoices(list);
+        if (!formData.ttsVoice) {
+          setFormData((prev) => ({ ...prev, ttsVoice: 'es-MX-DaliaNeural' }));
+        }
+      });
+    }
+  }, [isOpen]);
+
+  const handleTestVoice = () => {
+    setIsPlayingTest(true);
+    ttsService.testVoice(
+      formData.ttsVoice || 'es-MX-DaliaNeural',
+      formData.ttsRate || 1.0,
+      formData.ttsPitch || 1.0
+    );
+    setTimeout(() => setIsPlayingTest(false), 3500);
+  };
+
+  const handleResetRecommendedVoice = (lang?: VoiceLanguageCategory) => {
+    const targetLang = lang || ttsLangTab;
+    let recVoice = 'es-MX-DaliaNeural';
+    if (targetLang === 'en') recVoice = 'en-US-JennyNeural';
+    if (targetLang === 'fr') recVoice = 'fr-FR-DeniseNeural';
+
+    setFormData((prev) => ({
+      ...prev,
+      ttsVoice: recVoice,
+      ttsRate: 1.0,
+      ttsPitch: 1.0,
+      ttsVolume: 1.0
+    }));
+  };
+
+  const handleCleanGarbage = async () => {
+    if (!window.electronAPI?.cleanNotesGarbage) return;
+    setIsCleaningGarbage(true);
+    setGarbageCleanResult(null);
+    try {
+      const res = await window.electronAPI.cleanNotesGarbage();
+      if (res && res.success) {
+        setGarbageCleanResult(`🧹 ¡Limpieza completa! Se eliminaron ${res.removedCount} elementos de basura/huérfanos. Quedan ${res.remainingCount} notas activas reales.`);
+        refreshBackupData();
+        setTimeout(() => setGarbageCleanResult(null), 6000);
+      } else {
+        alert('No se pudo completar la limpieza: ' + (res.error || 'Error desconocido'));
+      }
+    } catch (err: any) {
+      alert('Error al limpiar basura: ' + err.message);
+    } finally {
+      setIsCleaningGarbage(false);
+    }
+  };
+
+  const handleCreateBackupNow = async () => {
+    if (!window.electronAPI?.createBackup) return;
+    setIsCreatingBackup(true);
+    setBackupSuccessMessage('');
+    try {
+      const res = await window.electronAPI.createBackup();
+      if (res && res.success) {
+        setBackupSuccessMessage(`¡Copia de seguridad guardada! (${res.notesCount || 0} notas, ${res.size})`);
+        refreshBackupData();
+        setTimeout(() => setBackupSuccessMessage(''), 5000);
+      } else {
+        alert(res.error || 'No se pudo crear la copia de seguridad.');
+      }
+    } catch (e: any) {
+      alert('Error creando respaldo: ' + e.message);
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const handleRestoreFromPath = async (filePath?: string) => {
+    if (!window.electronAPI?.restoreBackup) return;
+    const ok = window.confirm('¿Deseas restaurar esta copia de seguridad? Tus notas se sincronizarán con este respaldo.');
+    if (!ok) return;
+
+    setIsRestoring(true);
+    try {
+      const res = await window.electronAPI.restoreBackup(filePath);
+      if (res && res.success) {
+        setBackupSuccessMessage(`¡Copia restaurada con éxito! (${res.count || 0} notas cargadas)`);
+        refreshBackupData();
+        setTimeout(() => setBackupSuccessMessage(''), 5000);
+      } else {
+        alert(res.error || 'No se pudo restaurar la copia.');
+      }
+    } catch (e: any) {
+      alert('Error al restaurar: ' + e.message);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleImportBackup = async () => {
+    if (!window.electronAPI?.importBackupDialog) return;
+    setIsRestoring(true);
+    try {
+      const res = await window.electronAPI.importBackupDialog();
+      if (res && res.success) {
+        setBackupSuccessMessage(`¡Copia importada con éxito! (${res.count || 0} notas restauradas)`);
+        refreshBackupData();
+        setTimeout(() => setBackupSuccessMessage(''), 5000);
+      } else if (res && res.error) {
+        alert(res.error);
+      }
+    } catch (e: any) {
+      alert('Error importando copia: ' + e.message);
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
+  const handleExportBackup = async () => {
+    if (!window.electronAPI?.exportBackupDialog) return;
+    try {
+      const res = await window.electronAPI.exportBackupDialog();
+      if (res && res.success) {
+        setBackupSuccessMessage('Copia de seguridad exportada con éxito.');
+        setTimeout(() => setBackupSuccessMessage(''), 4000);
+      }
+    } catch (e: any) {
+      alert('Error exportando: ' + e.message);
+    }
+  };
+
+  const handleChangeStorageFolder = async (folderPath: string) => {
+    if (!window.electronAPI?.changeStorageDir) return;
+    try {
+      const res = await window.electronAPI.changeStorageDir(folderPath, true);
+      if (res && res.success) {
+        refreshBackupData();
+        setBackupSuccessMessage('Carpeta de sincronización actualizada.');
+        setTimeout(() => setBackupSuccessMessage(''), 4000);
+      }
+    } catch (e: any) {
+      alert('Error cambiando carpeta: ' + e.message);
+    }
+  };
+
+  const handleSelectCustomFolder = async () => {
+    if (!window.electronAPI?.selectFolderDialog) return;
+    try {
+      const folder = await window.electronAPI.selectFolderDialog();
+      if (folder) {
+        await handleChangeStorageFolder(folder);
+      }
+    } catch (e: any) {
+      alert('Error seleccionando carpeta: ' + e.message);
+    }
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -56,26 +289,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }, 700);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in select-none">
-      <div className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col h-[520px] max-h-[90vh] overflow-hidden text-slate-800 dark:text-slate-100">
-        
-        {/* Header */}
-        <div className="p-3 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between border-b border-slate-700">
-          <div className="flex items-center gap-2">
-            <SettingsIcon size={18} className="text-blue-400" />
-            <h3 className="font-semibold text-sm">Configuración de StickyFlow</h3>
-          </div>
+  const modalContent = (
+    <div className={`flex flex-col overflow-hidden text-slate-800 dark:text-slate-100 ${
+      isStandaloneWindow
+        ? 'w-full h-full bg-white dark:bg-slate-900 select-none'
+        : 'w-full max-w-2xl bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 h-[560px] max-h-[90vh]'
+    }`}>
+      {/* Header */}
+      <div className={`p-3 bg-gradient-to-r from-slate-800 to-slate-900 text-white flex items-center justify-between border-b border-slate-700 select-none shrink-0 ${
+        isStandaloneWindow ? 'window-drag-region cursor-move' : ''
+      }`}>
+        <div className="flex items-center gap-2">
+          <SettingsIcon size={18} className="text-blue-400" />
+          <h3 className="font-semibold text-sm">Configuración de StickyFlow</h3>
+          {isStandaloneWindow && (
+            <span className="text-[11px] text-slate-400 ml-1 hidden sm:inline">
+              • Arrastra aquí para mover
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 window-no-drag">
+          {isStandaloneWindow && (
+            <>
+              {/* Toggle Pin */}
+              <button
+                type="button"
+                onClick={handleTogglePin}
+                title={isPinned ? 'Desactivar siempre visible (desanclar)' : 'Fijar ventana siempre visible'}
+                className={`p-1.5 rounded-md border text-xs flex items-center transition-colors cursor-pointer ${
+                  isPinned ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
+                }`}
+              >
+                {isPinned ? <Pin size={13} className="text-amber-400" /> : <PinOff size={13} />}
+              </button>
+
+              {/* Minimize */}
+              <button
+                type="button"
+                onClick={() => window.electronAPI?.minimize()}
+                title="Minimizar ventana"
+                className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+              >
+                <Minus size={13} />
+              </button>
+            </>
+          )}
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-md hover:bg-white/20 transition-colors"
+            title="Cerrar configuración"
+            className="p-1.5 rounded-md hover:bg-white/20 transition-colors cursor-pointer"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
+      </div>
 
-        {/* Modal Layout: Left Navigation + Right Content */}
-        <form onSubmit={handleSubmit} className="flex-1 flex overflow-hidden">
+      {/* Modal Layout: Left Navigation + Right Content */}
+      <form onSubmit={handleSubmit} className="flex-1 flex overflow-hidden">
           
           {/* Left Navigation Bar */}
           <nav className="w-44 bg-slate-50 dark:bg-slate-950/80 border-r border-slate-200 dark:border-slate-800 p-2 space-y-1 text-xs select-none shrink-0">
@@ -114,8 +385,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
               }`}
             >
-              <Database size={14} className={currentTab === 'database' ? 'text-white' : 'text-emerald-500'} />
-              <span>Base de Datos</span>
+              <Cloud size={14} className={currentTab === 'database' ? 'text-white' : 'text-emerald-500'} />
+              <span>Copia & Nube</span>
             </button>
 
             <button
@@ -142,6 +413,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <Sliders size={14} className={currentTab === 'window' ? 'text-white' : 'text-slate-500'} />
               <span>Ventana & General</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCurrentTab('tts')}
+              className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center gap-2 transition-all font-medium ${
+                currentTab === 'tts'
+                  ? 'bg-sky-600 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Volume2 size={14} className={currentTab === 'tts' ? 'text-white' : 'text-sky-500'} />
+              <span>Voz & Lectura (TTS)</span>
             </button>
           </nav>
 
@@ -173,7 +457,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Sparkles size={16} className="text-purple-600" />
                     <div>
                       <div className="text-xs">Hugging Face</div>
-                      <div className="text-[10px] text-slate-500 font-normal">gpt-oss-120b</div>
+                      <div className="text-[10px] text-slate-500 font-normal">Qwen 2.5 72B (Gratuito)</div>
                     </div>
                   </button>
 
@@ -207,13 +491,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] text-slate-500 block mb-0.5">Modelo</label>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="text-[11px] text-slate-500">Modelo Chat / Instruct</label>
+                      <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Recomendados</span>
+                    </div>
                     <input
                       type="text"
                       value={formData.hfModel}
                       onChange={(e) => setFormData({ ...formData, hfModel: e.target.value })}
                       className="w-full px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
+                      placeholder="Qwen/Qwen2.5-72B-Instruct"
                     />
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {[
+                        { id: 'Qwen/Qwen2.5-72B-Instruct', label: 'Qwen 2.5 72B (Gratuito)' },
+                        { id: 'meta-llama/Llama-3.2-3B-Instruct', label: 'Llama 3.2 3B (Rápido)' },
+                        { id: 'meta-llama/Llama-3.3-70B-Instruct', label: 'Llama 3.3 70B' },
+                        { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1' }
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, hfModel: m.id })}
+                          className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors cursor-pointer ${
+                            formData.hfModel === m.id
+                              ? 'bg-purple-600 text-white border-purple-600 font-semibold'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-400'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <label className="text-[11px] text-slate-500 block mb-0.5">API Key de Hugging Face (hf_...)</label>
@@ -338,96 +647,329 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
-            {/* TAB 3: BASE DE DATOS */}
+            {/* TAB 3: COPIA DE SEGURIDAD & NUBE */}
             {currentTab === 'database' && (
               <div className="space-y-3 animate-in fade-in">
                 <div>
                   <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                    <Database size={16} className="text-emerald-500" />
-                    Base de Datos & Almacenamiento
+                    <Cloud size={16} className="text-emerald-600 dark:text-emerald-400" />
+                    Copia de Seguridad & Nube
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    Elige si deseas operar 100% offline o sincronizar con una base de datos externa en línea.
+                    Respaldo y sincronización automática sin configuraciones complejas. Tus notas se respaldan en tu nube personal (OneDrive / Google Drive) con 1 solo clic.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, dbMode: 'local' })}
-                    className={`p-3 rounded-lg border text-left transition-all ${
-                      formData.dbMode !== 'remote'
-                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 font-bold'
-                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <Lock size={16} className="text-emerald-600 mb-1" />
-                    <div className="text-xs">Solo Local (Privado)</div>
-                    <div className="text-[10px] text-slate-500 font-normal">Sin latencia, sin nube, 100% en tu equipo</div>
-                  </button>
+                {garbageCleanResult && (
+                  <div className="p-2 bg-blue-100 dark:bg-blue-950/70 border border-blue-300 dark:border-blue-800 rounded-lg text-blue-900 dark:text-blue-200 text-xs flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 size={15} className="text-blue-600 shrink-0" />
+                    <span className="font-medium">{garbageCleanResult}</span>
+                  </div>
+                )}
 
+                {/* 0. GARBAGE CLEANUP CARD */}
+                <div className="flex items-center justify-between p-2.5 bg-slate-100/90 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                  <div className="pr-2">
+                    <span className="font-bold block text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                      <Trash2 size={14} className="text-amber-500" />
+                      Limpieza de Basura y Archivos Obsoletos
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Elimina notas vacías, fantasmas y archivos .md de notas borradas para que tu copia contenga exactamente tus notas reales.
+                    </span>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, dbMode: 'remote' })}
-                    className={`p-3 rounded-lg border text-left transition-all ${
-                      formData.dbMode === 'remote'
-                        ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 font-bold'
-                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                    }`}
+                    onClick={handleCleanGarbage}
+                    disabled={isCleaningGarbage}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 active:scale-95 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
                   >
-                    <Cloud size={16} className="text-blue-600 mb-1" />
-                    <div className="text-xs">Base de Datos Online</div>
-                    <div className="text-[10px] text-slate-500 font-normal">Sincroniza con Supabase / REST / Cloudflare D1</div>
+                    <span>{isCleaningGarbage ? 'Limpiando...' : '🧹 Limpiar Basura'}</span>
                   </button>
                 </div>
 
-                {formData.dbMode === 'remote' && (
-                  <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2 animate-in fade-in">
-                    <div>
-                      <label className="text-[11px] text-slate-500 block mb-0.5">Tipo de Proveedor Online</label>
-                      <select
-                        value={formData.remoteDbProvider || 'supabase'}
-                        onChange={(e) => setFormData({ ...formData, remoteDbProvider: e.target.value as RemoteDbProvider })}
-                        className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
-                      >
-                        <option value="supabase">Supabase (PostgreSQL / REST)</option>
-                        <option value="cloudflare_d1">Cloudflare D1 / Workers</option>
-                        <option value="rest">API REST Personalizada</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] text-slate-500 block mb-0.5">URL de la Base de Datos</label>
-                      <input
-                        type="text"
-                        value={formData.remoteDbUrl || ''}
-                        onChange={(e) => setFormData({ ...formData, remoteDbUrl: e.target.value })}
-                        placeholder="https://xyz.supabase.co o endpoint REST"
-                        className="w-full px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] text-slate-500 block mb-0.5">API Key / Token de Acceso</label>
-                      <div className="relative flex items-center">
-                        <input
-                          type={showRemoteDbKey ? 'text' : 'password'}
-                          value={formData.remoteDbApiKey || ''}
-                          onChange={(e) => setFormData({ ...formData, remoteDbApiKey: e.target.value })}
-                          placeholder="Clave de API pública o servicio"
-                          className="w-full px-2.5 py-1 pr-7 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowRemoteDbKey(!showRemoteDbKey)}
-                          className="absolute right-2 text-slate-400"
-                        >
-                          {showRemoteDbKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                        </button>
-                      </div>
-                    </div>
+                {backupSuccessMessage && (
+                  <div className="p-2 bg-emerald-100 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 rounded-lg text-emerald-900 dark:text-emerald-200 text-xs flex items-center gap-2 animate-in fade-in">
+                    <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                    <span className="font-medium">{backupSuccessMessage}</span>
                   </div>
                 )}
+
+                {/* 1. BACKUP STATUS CARD */}
+                <div className="p-3 bg-gradient-to-br from-emerald-50/90 to-teal-50/50 dark:from-emerald-950/40 dark:to-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/60 space-y-2.5 shadow-2xs">
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <HardDrive size={15} className="text-emerald-600" />
+                        <span className="font-bold text-xs text-emerald-950 dark:text-emerald-100">
+                          Estado de Copia de Seguridad
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-emerald-900/90 dark:text-emerald-200/90">
+                        Última copia:{' '}
+                        <strong className="text-emerald-950 dark:text-white">
+                          {backupInfo?.lastBackupTime
+                            ? new Date(backupInfo.lastBackupTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+                            : (formData.lastBackupTime ? new Date(formData.lastBackupTime).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Nunca realizada')}
+                        </strong>
+                      </div>
+                      <div className="text-[10px] text-emerald-700/80 dark:text-emerald-400">
+                        Tamaño:{' '}
+                        {backupInfo?.lastBackupSize || formData.lastBackupSize || '0 KB'} •{' '}
+                        {backupInfo?.backupCount || backupsList.length} copias guardadas
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleCreateBackupNow}
+                      disabled={isCreatingBackup}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                    >
+                      <Download size={13} className={isCreatingBackup ? 'animate-bounce' : ''} />
+                      <span>{isCreatingBackup ? 'Guardando...' : 'Hacer Copia Ahora'}</span>
+                    </button>
+                  </div>
+
+                  {/* Secondary Action Buttons */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-emerald-200/60 dark:border-emerald-900/40 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={handleImportBackup}
+                      disabled={isRestoring}
+                      className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <Upload size={12} className="text-emerald-600" />
+                      <span>Restaurar Copia...</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleExportBackup}
+                      className="px-2.5 py-1 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-md font-medium flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                    >
+                      <FileJson size={12} className="text-blue-600" />
+                      <span>Exportar Archivo (.json)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowBackupHistory(!showBackupHistory)}
+                      className="ml-auto text-[10px] text-emerald-700 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer font-medium"
+                    >
+                      <History size={11} />
+                      <span>{showBackupHistory ? 'Ocultar Historial' : `Historial (${backupsList.length})`}</span>
+                    </button>
+                  </div>
+
+                  {/* Expandable Backup History */}
+                  {showBackupHistory && (
+                    <div className="p-2 bg-white/80 dark:bg-slate-900/80 rounded-lg border border-emerald-200/60 dark:border-emerald-900/40 space-y-1.5 max-h-36 overflow-y-auto animate-in fade-in">
+                      <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
+                        Copias de seguridad disponibles en tu equipo:
+                      </div>
+                      {backupsList.length === 0 ? (
+                        <div className="text-[11px] text-slate-400 py-1">No hay copias previas aún. Haz clic en "Hacer Copia Ahora".</div>
+                      ) : (
+                        backupsList.map((b) => (
+                          <div
+                            key={b.fileName}
+                            className="flex items-center justify-between p-1.5 bg-slate-50 dark:bg-slate-800 rounded border border-slate-100 dark:border-slate-700 text-[11px]"
+                          >
+                            <div>
+                              <div className="font-medium text-slate-800 dark:text-slate-200">{b.fileName}</div>
+                              <div className="text-[10px] text-slate-400">
+                                {new Date(b.time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} • {b.size} • {b.notesCount} notas
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreFromPath(b.filePath)}
+                              className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 rounded text-[10px] font-semibold border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                            >
+                              Restaurar
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. CLOUD SYNC LOCATION SELECTOR (ZERO SETUP) */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div>
+                    <span className="font-semibold block text-slate-800 dark:text-slate-100 text-xs">
+                      Ubicación de Sincronización en la Nube
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Tus notas se sincronizan automáticamente con la nube mediante tu carpeta personal:
+                    </span>
+                  </div>
+
+                  {/* Cloud Providers Detected Grid */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {(backupInfo?.detectedClouds || []).map((cloud) => {
+                      const isCurrent = backupInfo?.activeStorageDir ? pathNormalize(backupInfo.activeStorageDir) === pathNormalize(cloud.path) : false;
+                      return (
+                        <button
+                          key={cloud.id}
+                          type="button"
+                          onClick={() => handleChangeStorageFolder(cloud.path)}
+                          className={`p-2 rounded-lg border text-left flex items-start gap-2 transition-all cursor-pointer ${
+                            isCurrent
+                              ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 shadow-xs'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          <span className="text-base mt-0.5">
+                            {cloud.type === 'onedrive' ? '☁️' : cloud.type === 'gdrive' ? '📁' : cloud.type === 'dropbox' ? '📦' : cloud.type === 'icloud' ? '🍏' : '💻'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold truncate text-slate-800 dark:text-slate-100">
+                                {cloud.name}
+                              </span>
+                              {isCurrent && (
+                                <span className="text-[9px] bg-emerald-600 text-white px-1.5 py-0.2 rounded font-bold shrink-0">
+                                  ACTIVA
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 block truncate">
+                              {cloud.exists ? (cloud.isCloud ? 'Sincronizado en tiempo real' : 'Carpeta local') : 'No detectada'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Active Path Display & Custom Folder Button */}
+                  <div className="p-2 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px]">
+                    <div className="truncate pr-2 text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold text-slate-500">Ruta: </span>
+                      <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">
+                        {backupInfo?.activeStorageDir || 'Documentos\\StickyFlow_Notas'}
+                      </code>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleSelectCustomFolder}
+                        className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded text-[10px] font-medium border border-slate-300 dark:border-slate-700 cursor-pointer"
+                      >
+                        Cambiar carpeta...
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onOpenNotesFolder}
+                        className="p-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                        title="Abrir en el Explorador de Windows"
+                      >
+                        <ExternalLink size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. AUTO-BACKUP FREQUENCY */}
+                <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <div>
+                    <span className="font-semibold block text-slate-800 dark:text-slate-200 text-xs">
+                      Copia de Seguridad Automática
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Crea un respaldo automático periódico en tu nube sin interrumpirte
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={formData.autoBackupFrequency || 'daily'}
+                      onChange={(e) => setFormData({ ...formData, autoBackupFrequency: e.target.value as any })}
+                      className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[11px] font-medium"
+                    >
+                      <option value="daily">Diaria (WhatsApp)</option>
+                      <option value="weekly">Semanal</option>
+                      <option value="manual">Solo manual</option>
+                    </select>
+                    <input
+                      type="checkbox"
+                      checked={formData.autoBackupEnabled !== false}
+                      onChange={(e) => setFormData({ ...formData, autoBackupEnabled: e.target.checked })}
+                      className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. ADVANCED REMOTE DB (COLLAPSIBLE) */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedDb(!showAdvancedDb)}
+                    className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>⚙️ Opciones avanzadas de Base de Datos externa (Supabase / Cloudflare D1)</span>
+                    <span className="text-[9px]">{showAdvancedDb ? '▲' : '▼'}</span>
+                  </button>
+
+                  {showAdvancedDb && (
+                    <div className="mt-2 p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2 animate-in fade-in">
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, dbMode: 'local' })}
+                          className={`p-2 rounded border text-left text-xs ${formData.dbMode !== 'remote' ? 'border-emerald-600 font-bold bg-white dark:bg-slate-900' : 'border-slate-200 dark:border-slate-700'}`}
+                        >
+                          Modo Normal (Local + Nube OneDrive/Google Drive)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, dbMode: 'remote' })}
+                          className={`p-2 rounded border text-left text-xs ${formData.dbMode === 'remote' ? 'border-blue-600 font-bold bg-white dark:bg-slate-900' : 'border-slate-200 dark:border-slate-700'}`}
+                        >
+                          Conectar Servidor SQL / REST Remoto
+                        </button>
+                      </div>
+
+                      {formData.dbMode === 'remote' && (
+                        <div className="space-y-2 pt-1">
+                          <div>
+                            <label className="text-[10px] text-slate-500 block">Proveedor</label>
+                            <select
+                              value={formData.remoteDbProvider || 'supabase'}
+                              onChange={(e) => setFormData({ ...formData, remoteDbProvider: e.target.value as any })}
+                              className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
+                            >
+                              <option value="supabase">Supabase (PostgreSQL / REST)</option>
+                              <option value="cloudflare_d1">Cloudflare D1</option>
+                              <option value="rest">API REST</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-500 block">URL de la Base de Datos</label>
+                            <input
+                              type="text"
+                              value={formData.remoteDbUrl || ''}
+                              onChange={(e) => setFormData({ ...formData, remoteDbUrl: e.target.value })}
+                              placeholder="https://xyz.supabase.co"
+                              className="w-full px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-500 block">API Key</label>
+                            <input
+                              type="password"
+                              value={formData.remoteDbApiKey || ''}
+                              onChange={(e) => setFormData({ ...formData, remoteDbApiKey: e.target.value })}
+                              className="w-full px-2.5 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -484,6 +1026,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
 
                 <div className="space-y-3">
+                  {/* Inicio discreto con solo separadores */}
+                  <div className="flex items-center justify-between p-2.5 bg-emerald-50/80 dark:bg-emerald-950/40 rounded-lg border border-emerald-200 dark:border-emerald-900/60">
+                    <div className="pr-2">
+                      <span className="font-semibold block text-emerald-950 dark:text-emerald-200 text-xs">
+                        Al Iniciar la PC: Mostrar solo pestañas pequeñas (Dock)
+                      </span>
+                      <span className="text-[10px] text-emerald-800/80 dark:text-emerald-300/80">
+                        No abre la ventana grande al arrancar la PC; únicamente muestra los separadores discretos en el borde. Las notas se abren cuando haces clic en ellas.
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={formData.startDockOnly !== false}
+                      onChange={(e) => setFormData({ ...formData, startDockOnly: e.target.checked })}
+                      className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer shrink-0"
+                    />
+                  </div>
+
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="font-semibold block text-slate-700 dark:text-slate-200">Siempre Flotante por Defecto</span>
@@ -593,11 +1153,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <div className="flex items-center justify-between pt-1 border-t border-amber-200/60 dark:border-amber-900/40">
                           <div>
                             <span className="font-medium text-[11px] text-amber-950 dark:text-amber-200 block">
-                              Separadores siempre visibles (Always on Top)
+                              Separadores siempre visibles (Fijos e independientes)
                             </span>
                             <span className="text-[10px] text-amber-700 dark:text-amber-400">
                               {formData.dockAlwaysOnTop !== false
-                                ? 'Siempre por encima de todas las aplicaciones'
+                                ? 'Permanece siempre fijo en el borde sin afectarse si desanclas la ventana grande'
                                 : 'Permite que otras ventanas cubran los separadores'}
                             </span>
                           </div>
@@ -633,6 +1193,178 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
 
+            {/* TAB 6: VOZ & LECTURA (TTS) */}
+            {currentTab === 'tts' && (
+              <div className="space-y-3.5 animate-in fade-in">
+                <div>
+                  <h4 className="font-semibold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                    <Volume2 size={16} className="text-sky-600 dark:text-sky-400" />
+                    Lectura Natural de Notas (Voz Real Humana & Piper TTS)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Sustituye la voz robótica por voces neuronales de alta fidelidad y modelos Piper TTS que leen con calidez humana real en 3 idiomas.
+                  </p>
+                </div>
+
+                {/* Idioma Selector Tabs: Latino / Inglés / Francés */}
+                <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTtsLangTab('es');
+                      handleResetRecommendedVoice('es');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${ttsLangTab === 'es' ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-medium'}`}
+                  >
+                    <span>🌎 Español Latino</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTtsLangTab('en');
+                      handleResetRecommendedVoice('en');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${ttsLangTab === 'en' ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-medium'}`}
+                  >
+                    <span>🇺🇸 English</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTtsLangTab('fr');
+                      handleResetRecommendedVoice('fr');
+                    }}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 ${ttsLangTab === 'fr' ? 'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400 shadow-2xs font-bold' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 font-medium'}`}
+                  >
+                    <span>🇫🇷 Français</span>
+                  </button>
+                </div>
+
+                {/* Voice Selection Box */}
+                <div className="p-3 bg-gradient-to-br from-sky-50/70 to-indigo-50/40 dark:from-sky-950/30 dark:to-slate-900 rounded-xl border border-sky-200 dark:border-sky-900/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-slate-800 dark:text-slate-100 block text-xs">
+                      Voz del Narrador ({ttsLangTab === 'es' ? 'Español Latino' : ttsLangTab === 'en' ? 'Inglés' : 'Francés'}):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleResetRecommendedVoice(ttsLangTab)}
+                      className="text-[10px] text-sky-600 hover:text-sky-700 dark:text-sky-400 flex items-center gap-1 font-medium cursor-pointer"
+                    >
+                      <RotateCcw size={11} />
+                      <span>
+                        {ttsLangTab === 'es' ? 'Recomendar Dalia (México)' : ttsLangTab === 'en' ? 'Recomendar Jenny (EE.UU.)' : 'Recomendar Denise (Francia)'}
+                      </span>
+                    </button>
+                  </div>
+
+                  <select
+                    value={formData.ttsVoice || (ttsLangTab === 'es' ? 'es-MX-DaliaNeural' : ttsLangTab === 'en' ? 'en-US-JennyNeural' : 'fr-FR-DeniseNeural')}
+                    onChange={(e) => setFormData({ ...formData, ttsVoice: e.target.value })}
+                    className="w-full p-2.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-sky-500 text-slate-800 dark:text-slate-100"
+                  >
+                    <optgroup label={`✨ Voces Neuronales de Alta Fidelidad (${ttsLangTab === 'es' ? 'Español Latino' : ttsLangTab === 'en' ? 'English' : 'Français'})`}>
+                      {ALL_NATURAL_VOICES.filter(v => v.category === ttsLangTab && v.engine !== 'piper').map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.flag} {v.name} ({v.country}) — {v.gender === 'female' ? 'Femenina' : 'Masculina'} • {v.description}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="⚡ Modelos Piper TTS (VITS Locales)">
+                      {ALL_NATURAL_VOICES.filter(v => v.category === ttsLangTab && v.engine === 'piper').map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.flag} {v.name} ({v.country}) — {v.description}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🔊 Voces Locales del Sistema Operativo">
+                      {voices.filter(v => !v.isNeural && (
+                        ttsLangTab === 'es' ? v.lang.startsWith('es') :
+                        ttsLangTab === 'en' ? v.lang.startsWith('en') :
+                        v.lang.startsWith('fr')
+                      )).map(v => (
+                        <option key={v.voiceURI} value={v.voiceURI}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] text-sky-800/80 dark:text-sky-300/80">
+                      ✨ Sin costo • Entonación fluida humana real y Piper TTS
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleTestVoice}
+                      disabled={isPlayingTest}
+                      className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 active:scale-95 disabled:opacity-50 text-white rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                    >
+                      <Volume2 size={13} className={isPlayingTest ? 'animate-bounce' : ''} />
+                      <span>{isPlayingTest ? 'Reproduciendo muestra...' : 'Probar Voz'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Speed / Rate slider */}
+                <div className="space-y-1 p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
+                      Velocidad de Lectura ({formData.ttsRate || 1.0}x)
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {(formData.ttsRate || 1.0) === 1.0 ? 'Normal (Recomendado)' : (formData.ttsRate || 1.0) < 1.0 ? 'Pausada' : 'Rápida'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.4"
+                    step="0.05"
+                    value={formData.ttsRate || 1.0}
+                    onChange={(e) => setFormData({ ...formData, ttsRate: parseFloat(e.target.value) })}
+                    className="w-full accent-sky-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-400">
+                    <span>0.7x (Pausada)</span>
+                    <span>1.0x (Natural)</span>
+                    <span>1.4x (Dinámica)</span>
+                  </div>
+                </div>
+
+                {/* Pitch slider */}
+                <div className="space-y-1 p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
+                      Tono de la Voz ({formData.ttsPitch || 1.0})
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {(formData.ttsPitch || 1.0) === 1.0 ? 'Natural' : (formData.ttsPitch || 1.0) < 1.0 ? 'Grave' : 'Agudo'}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.8"
+                    max="1.2"
+                    step="0.05"
+                    value={formData.ttsPitch || 1.0}
+                    onChange={(e) => setFormData({ ...formData, ttsPitch: parseFloat(e.target.value) })}
+                    className="w-full accent-sky-600 cursor-pointer"
+                  />
+                </div>
+
+                {/* Smart reader explanation card */}
+                <div className="p-2.5 bg-emerald-50/70 dark:bg-emerald-950/40 rounded-lg border border-emerald-200 dark:border-emerald-900/60 text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5 text-xs text-emerald-800 dark:text-emerald-300">
+                    <span>✨ Modo Persona Real Activo</span>
+                  </div>
+                  <p>
+                    StickyFlow procesa el texto antes de leerlo: reconoce tareas completadas o pendientes, títulos, pausas y viñetas sin deletrear enlaces feos, para que suene exactamente como un audiolibro narrado por una persona real.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Save Button Footer */}
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
               <button
@@ -651,7 +1383,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
         </form>
-      </div>
+    </div>
+  );
+
+  if (isStandaloneWindow) {
+    return modalContent;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in select-none">
+      {modalContent}
     </div>
   );
 };

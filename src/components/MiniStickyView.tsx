@@ -24,23 +24,32 @@ const COLOR_CLASSES: Record<NoteColor, {
     pin: 'text-amber-600',
     badge: 'bg-amber-200/80 text-amber-800'
   },
-  blue: {
-    container: 'bg-[#e0f2fe] text-sky-950',
-    header: 'bg-[#bae6fd]/80 border-b border-sky-300/60',
-    title: 'text-sky-950',
-    text: 'text-sky-900/90',
-    border: 'border-sky-300',
-    pin: 'text-sky-600',
-    badge: 'bg-sky-200/80 text-sky-800'
+  orange: {
+    container: 'bg-[#ffedd5] text-amber-950',
+    header: 'bg-[#fed7aa]/80 border-b border-orange-300/60',
+    title: 'text-amber-950',
+    text: 'text-amber-900/90',
+    border: 'border-orange-300',
+    pin: 'text-orange-600',
+    badge: 'bg-orange-200/80 text-orange-800'
   },
-  green: {
-    container: 'bg-[#dcfce7] text-emerald-950',
-    header: 'bg-[#bbf7d0]/80 border-b border-emerald-300/60',
-    title: 'text-emerald-950',
-    text: 'text-emerald-900/90',
-    border: 'border-emerald-300',
-    pin: 'text-emerald-600',
-    badge: 'bg-emerald-200/80 text-emerald-800'
+  coral: {
+    container: 'bg-[#ffe4e6] text-rose-950',
+    header: 'bg-[#fecaca]/80 border-b border-red-300/60',
+    title: 'text-rose-950',
+    text: 'text-rose-900/90',
+    border: 'border-red-300',
+    pin: 'text-red-600',
+    badge: 'bg-red-200/80 text-red-800'
+  },
+  pink: {
+    container: 'bg-[#fce7f3] text-rose-950',
+    header: 'bg-[#fbcfe8]/80 border-b border-rose-300/60',
+    title: 'text-rose-950',
+    text: 'text-rose-900/90',
+    border: 'border-rose-300',
+    pin: 'text-rose-600',
+    badge: 'bg-rose-200/80 text-rose-800'
   },
   purple: {
     container: 'bg-[#f3e8ff] text-purple-950',
@@ -51,14 +60,41 @@ const COLOR_CLASSES: Record<NoteColor, {
     pin: 'text-purple-600',
     badge: 'bg-purple-200/80 text-purple-800'
   },
-  pink: {
-    container: 'bg-[#fce7f3] text-rose-950',
-    header: 'bg-[#fbcfe8]/80 border-b border-rose-300/60',
-    title: 'text-rose-950',
-    text: 'text-rose-900/90',
-    border: 'border-rose-300',
-    pin: 'text-rose-600',
-    badge: 'bg-rose-200/80 text-rose-800'
+  indigo: {
+    container: 'bg-[#e0e7ff] text-indigo-950',
+    header: 'bg-[#c7d2fe]/80 border-b border-indigo-300/60',
+    title: 'text-indigo-950',
+    text: 'text-indigo-900/90',
+    border: 'border-indigo-300',
+    pin: 'text-indigo-600',
+    badge: 'bg-indigo-200/80 text-indigo-800'
+  },
+  blue: {
+    container: 'bg-[#e0f2fe] text-sky-950',
+    header: 'bg-[#bae6fd]/80 border-b border-sky-300/60',
+    title: 'text-sky-950',
+    text: 'text-sky-900/90',
+    border: 'border-sky-300',
+    pin: 'text-sky-600',
+    badge: 'bg-sky-200/80 text-sky-800'
+  },
+  teal: {
+    container: 'bg-[#ccfbf1] text-teal-950',
+    header: 'bg-[#99f6e4]/80 border-b border-teal-300/60',
+    title: 'text-teal-950',
+    text: 'text-teal-900/90',
+    border: 'border-teal-300',
+    pin: 'text-teal-600',
+    badge: 'bg-teal-200/80 text-teal-800'
+  },
+  green: {
+    container: 'bg-[#dcfce7] text-emerald-950',
+    header: 'bg-[#bbf7d0]/80 border-b border-emerald-300/60',
+    title: 'text-emerald-950',
+    text: 'text-emerald-900/90',
+    border: 'border-emerald-300',
+    pin: 'text-emerald-600',
+    badge: 'bg-emerald-200/80 text-emerald-800'
   },
   dark: {
     container: 'bg-[#0f172a] text-slate-100',

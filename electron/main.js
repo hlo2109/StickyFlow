@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, clipboard, session, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, clipboard, session, desktopCapturer, Menu, MenuItem, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -7,13 +7,19 @@ let isAlwaysOnTop = true;
 const miniStickyWindows = new Map(); // noteId -> BrowserWindow
 const noteWindows = new Map(); // noteId -> BrowserWindow (Multi-window support for notes)
 let dockWindow = null;
+let settingsWindow = null;
+let meetingWindow = null;
 
 const COLOR_HEX = {
   yellow: '#fef08a',
-  blue: '#bae6fd',
-  green: '#bbf7d0',
-  purple: '#e9d5ff',
+  orange: '#fed7aa',
+  coral: '#fecaca',
   pink: '#fbcfe8',
+  purple: '#e9d5ff',
+  indigo: '#c7d2fe',
+  blue: '#bae6fd',
+  teal: '#99f6e4',
+  green: '#bbf7d0',
   dark: '#1e293b'
 };
 
@@ -67,7 +73,8 @@ function createMiniStickyWindow(note) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false
+      webSecurity: false,
+      spellcheck: true
     }
   });
 
@@ -118,9 +125,54 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+const getSettingsFilePath = () => {
+  try {
+    const dataDir = path.join(app.getPath('userData'), 'stickyflow');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    return path.join(dataDir, 'settings.json');
+  } catch (e) {
+    console.error('Error in getSettingsFilePath:', e);
+    return path.join(app.getPath('temp'), 'stickyflow_settings.json');
+  }
+};
+
+const loadSettingsDirect = () => {
+  try {
+    const filePath = getSettingsFilePath();
+    if (fs.existsSync(filePath)) {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (parsed.dockAlwaysOnTop === undefined) parsed.dockAlwaysOnTop = true;
+      if (parsed.startDockOnly === undefined) parsed.startDockOnly = true;
+      if (!parsed.ttsVoice) parsed.ttsVoice = 'es-MX-DaliaNeural';
+      if (parsed.useNeuralTts === undefined) parsed.useNeuralTts = true;
+      return parsed;
+    }
+  } catch (err) {
+    console.error('Error loading settings direct:', err);
+  }
+  return {
+    dockPosition: 'right',
+    dockShowTitles: true,
+    dockEnabled: true,
+    dockAlwaysOnTop: true,
+    startDockOnly: true,
+    ttsVoice: 'es-MX-DaliaNeural',
+    useNeuralTts: true,
+    autoBackupEnabled: true,
+    autoBackupFrequency: 'daily',
+    dockedNoteIds: []
+  };
+};
+
 // Define directories for local storage & Markdown files
 const getStorageDir = () => {
   try {
+    const settings = loadSettingsDirect();
+    if (settings && settings.customStorageDir && fs.existsSync(settings.customStorageDir)) {
+      return settings.customStorageDir;
+    }
     if (!app.isPackaged) {
       // In development: use local project workspace
       return path.join(process.cwd(), 'mis_notas');
@@ -146,34 +198,295 @@ const getDataFilePath = () => {
   }
 };
 
-const getSettingsFilePath = () => {
-  try {
-    const dataDir = path.join(app.getPath('userData'), 'stickyflow');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+};
+
+// Detect local cloud-synced folders (OneDrive, Google Drive, Dropbox, iCloud)
+const detectCloudFolders = () => {
+  const homeDir = app.getPath('home');
+  const docsDir = app.getPath('documents');
+  const list = [];
+
+  // Default: Documents / Documentos
+  const docsSticky = path.join(docsDir, 'StickyFlow_Notas');
+  list.push({
+    id: 'documents',
+    name: 'Documentos Locales',
+    type: 'local',
+    path: docsSticky,
+    exists: fs.existsSync(docsDir),
+    isCloud: false,
+    icon: 'folder'
+  });
+
+  // Check OneDrive (common on Windows 10 & 11)
+  const oneDrivePaths = [
+    process.env.OneDrive,
+    process.env.OneDriveConsumer,
+    process.env.OneDriveCommercial,
+    path.join(homeDir, 'OneDrive'),
+    path.join(homeDir, 'OneDrive - Personal')
+  ].filter(Boolean);
+
+  let oneDriveFound = false;
+  for (const odp of oneDrivePaths) {
+    if (fs.existsSync(odp) && !oneDriveFound) {
+      list.push({
+        id: 'onedrive',
+        name: 'Microsoft OneDrive (Nube)',
+        type: 'onedrive',
+        path: path.join(odp, 'StickyFlow_Notas'),
+        exists: true,
+        isCloud: true,
+        icon: 'cloud'
+      });
+      oneDriveFound = true;
+      break;
     }
-    return path.join(dataDir, 'settings.json');
-  } catch (e) {
-    console.error('Error in getSettingsFilePath:', e);
-    return path.join(app.getPath('temp'), 'stickyflow_settings.json');
+  }
+
+  // Check Google Drive Desktop (Mi unidad / Google Drive)
+  const googleDrivePaths = [
+    path.join(homeDir, 'Google Drive'),
+    path.join(homeDir, 'Mi unidad'),
+    path.join(homeDir, 'GoogleDrive'),
+    'G:\\Mi unidad',
+    'G:\\My Drive'
+  ];
+
+  let gdriveFound = false;
+  for (const gdp of googleDrivePaths) {
+    if (fs.existsSync(gdp) && !gdriveFound) {
+      list.push({
+        id: 'gdrive',
+        name: 'Google Drive para Escritorio (Nube)',
+        type: 'gdrive',
+        path: path.join(gdp, 'StickyFlow_Notas'),
+        exists: true,
+        isCloud: true,
+        icon: 'cloud'
+      });
+      gdriveFound = true;
+      break;
+    }
+  }
+
+  // Check Dropbox
+  const dropboxPaths = [
+    path.join(homeDir, 'Dropbox'),
+    path.join(homeDir, 'Dropbox (Personal)')
+  ];
+  let dropboxFound = false;
+  for (const dbp of dropboxPaths) {
+    if (fs.existsSync(dbp) && !dropboxFound) {
+      list.push({
+        id: 'dropbox',
+        name: 'Dropbox (Nube)',
+        type: 'dropbox',
+        path: path.join(dbp, 'StickyFlow_Notas'),
+        exists: true,
+        isCloud: true,
+        icon: 'cloud'
+      });
+      dropboxFound = true;
+      break;
+    }
+  }
+
+  // Check iCloud Drive (Windows iCloud Desktop app)
+  const iCloudPaths = [
+    path.join(homeDir, 'iCloudDrive'),
+    path.join(homeDir, 'iCloud Drive')
+  ];
+  let icloudFound = false;
+  for (const icp of iCloudPaths) {
+    if (fs.existsSync(icp) && !icloudFound) {
+      list.push({
+        id: 'icloud',
+        name: 'iCloud Drive (Nube Apple)',
+        type: 'icloud',
+        path: path.join(icp, 'StickyFlow_Notas'),
+        exists: true,
+        isCloud: true,
+        icon: 'cloud'
+      });
+      icloudFound = true;
+      break;
+    }
+  }
+
+  return list;
+};
+
+const getBackupsDir = () => {
+  const baseDir = getStorageDir();
+  const backupsDir = path.join(baseDir, 'backups');
+  if (!fs.existsSync(backupsDir)) {
+    try {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    } catch (e) {
+      console.error('Error creating backups dir:', e);
+    }
+  }
+  return backupsDir;
+};
+
+// Backup Creation
+const createBackupFile = (notes, settings) => {
+  try {
+    const backupsDir = getBackupsDir();
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    const fileName = `StickyFlow_Backup_${dateStr}.json`;
+    const filePath = path.join(backupsDir, fileName);
+
+    const safeSettings = settings ? { ...settings } : loadSettingsDirect();
+    const backupPayload = {
+      app: 'StickyFlow',
+      version: '1.0.0',
+      timestamp: d.toISOString(),
+      notesCount: Array.isArray(notes) ? notes.length : 0,
+      notes: notes || [],
+      settings: safeSettings
+    };
+
+    const jsonStr = JSON.stringify(backupPayload, null, 2);
+    fs.writeFileSync(filePath, jsonStr, 'utf-8');
+
+    const stat = fs.statSync(filePath);
+    const sizeStr = formatFileSize(stat.size);
+
+    // Update settings with last backup info
+    safeSettings.lastBackupTime = d.toISOString();
+    safeSettings.lastBackupSize = sizeStr;
+    try {
+      fs.writeFileSync(getSettingsFilePath(), JSON.stringify(safeSettings, null, 2), 'utf-8');
+    } catch {}
+
+    // Clean older auto backups, keep up to 10 latest
+    try {
+      const files = fs.readdirSync(backupsDir)
+        .filter(f => f.startsWith('StickyFlow_Backup_') && f.endsWith('.json'))
+        .map(f => ({ name: f, time: fs.statSync(path.join(backupsDir, f)).mtimeMs }))
+        .sort((a, b) => b.time - a.time);
+
+      if (files.length > 10) {
+        files.slice(10).forEach(old => {
+          try { fs.unlinkSync(path.join(backupsDir, old.name)); } catch {}
+        });
+      }
+    } catch {}
+
+    return {
+      success: true,
+      filePath,
+      fileName,
+      timestamp: d.toISOString(),
+      size: sizeStr,
+      notesCount: backupPayload.notesCount
+    };
+  } catch (err) {
+    console.error('Error creating backup file:', err);
+    return { success: false, error: err.message };
   }
 };
 
-const loadSettingsDirect = () => {
+const listBackups = () => {
   try {
-    const filePath = getSettingsFilePath();
-    if (fs.existsSync(filePath)) {
-      return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    }
-  } catch (err) {
-    console.error('Error loading settings direct:', err);
+    const backupsDir = getBackupsDir();
+    if (!fs.existsSync(backupsDir)) return [];
+
+    const files = fs.readdirSync(backupsDir)
+      .filter(f => f.endsWith('.json'))
+      .map(name => {
+        const full = path.join(backupsDir, name);
+        try {
+          const stat = fs.statSync(full);
+          let notesCount = 0;
+          try {
+            const raw = JSON.parse(fs.readFileSync(full, 'utf-8'));
+            notesCount = Array.isArray(raw.notes) ? raw.notes.length : (raw.notesCount || 0);
+          } catch {}
+
+          return {
+            fileName: name,
+            filePath: full,
+            size: formatFileSize(stat.size),
+            sizeBytes: stat.size,
+            time: new Date(stat.mtimeMs).toISOString(),
+            notesCount
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    return files;
+  } catch (e) {
+    console.error('Error listing backups:', e);
+    return [];
   }
-  return {
-    dockPosition: 'right',
-    dockShowTitles: true,
-    dockEnabled: true,
-    dockedNoteIds: []
-  };
+};
+
+const restoreBackupFromFile = (targetFilePath) => {
+  try {
+    if (!fs.existsSync(targetFilePath)) {
+      return { success: false, error: 'El archivo de copia de seguridad no existe.' };
+    }
+
+    const raw = fs.readFileSync(targetFilePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+
+    const notesToRestore = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.notes) ? parsed.notes : null);
+    if (!notesToRestore) {
+      return { success: false, error: 'El archivo no contiene notas válidas de StickyFlow.' };
+    }
+
+    // Save notes to primary data file
+    const notesPath = getDataFilePath();
+    fs.writeFileSync(notesPath, JSON.stringify(notesToRestore, null, 2), 'utf-8');
+
+    // Also mirror to storage dir
+    try {
+      const storageDir = getStorageDir();
+      fs.writeFileSync(path.join(storageDir, 'stickyflow_database.json'), JSON.stringify(notesToRestore, null, 2), 'utf-8');
+    } catch {}
+
+    // Resync markdown files
+    notesToRestore.forEach(n => syncNoteToMarkdown(n));
+
+    // Restore settings if present
+    if (parsed.settings && typeof parsed.settings === 'object') {
+      try {
+        const curSettings = loadSettingsDirect();
+        const merged = { ...curSettings, ...parsed.settings };
+        fs.writeFileSync(getSettingsFilePath(), JSON.stringify(merged, null, 2), 'utf-8');
+      } catch {}
+    }
+
+    // Broadcast update to all windows and dock
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('notes:updated', notesToRestore);
+      }
+    });
+
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      dockWindow.webContents.send('dock:notes-updated', notesToRestore);
+    }
+
+    return { success: true, count: notesToRestore.length };
+  } catch (err) {
+    console.error('Error restoring backup:', err);
+    return { success: false, error: err.message };
+  }
 };
 
 function getDockBounds(position = 'right') {
@@ -255,9 +568,9 @@ function openNoteWindow(noteId) {
   const defaultY = Math.max(30, Math.min(screenHeight - 600, 70 + offsetY));
 
   const noteWin = new BrowserWindow({
-    width: 440,
+    width: 490,
     height: 560,
-    minWidth: 360,
+    minWidth: 380,
     minHeight: 380,
     maxWidth: 950,
     maxHeight: 900,
@@ -275,7 +588,8 @@ function openNoteWindow(noteId) {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false
+      webSecurity: false,
+      spellcheck: true
     }
   });
 
@@ -294,6 +608,13 @@ function openNoteWindow(noteId) {
   noteWin.once('ready-to-show', () => {
     noteWin.show();
     noteWin.focus();
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      const s = loadSettingsDirect();
+      if (s.dockAlwaysOnTop !== false) {
+        dockWindow.setAlwaysOnTop(true, 'screen-saver');
+        dockWindow.moveTop();
+      }
+    }
   });
 
   setTimeout(() => {
@@ -308,6 +629,143 @@ function openNoteWindow(noteId) {
 
   noteWindows.set(noteId, noteWin);
   return noteWin;
+}
+
+function openSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore();
+    settingsWindow.show();
+    settingsWindow.focus();
+    return settingsWindow;
+  }
+
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+  const winWidth = 660;
+  const winHeight = 620;
+  const defaultX = Math.max(30, Math.min(screenWidth - winWidth - 30, 180));
+  const defaultY = Math.max(30, Math.min(screenHeight - winHeight - 30, 80));
+
+  settingsWindow = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    minWidth: 520,
+    minHeight: 460,
+    x: defaultX,
+    y: defaultY,
+    frame: false,
+    show: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    movable: true,
+    resizable: true,
+    minimizable: true,
+    hasShadow: true,
+    roundedCorners: true,
+    backgroundColor: '#0f172a',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false,
+      spellcheck: true
+    }
+  });
+
+  const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
+  if (isDev) {
+    settingsWindow.loadURL('http://localhost:5173/?mode=settings#mode=settings');
+  } else {
+    settingsWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { mode: 'settings' },
+      hash: 'mode=settings'
+    });
+  }
+
+  settingsWindow.once('ready-to-show', () => {
+    settingsWindow.show();
+    settingsWindow.focus();
+  });
+
+  settingsWindow.on('closed', () => {
+    settingsWindow = null;
+  });
+
+  return settingsWindow;
+}
+
+function openMeetingWindow(noteId) {
+  if (meetingWindow && !meetingWindow.isDestroyed()) {
+    if (meetingWindow.isMinimized()) meetingWindow.restore();
+    meetingWindow.show();
+    meetingWindow.focus();
+    if (noteId) {
+      meetingWindow.webContents.send('meeting:set-note-id', noteId);
+    }
+    return meetingWindow;
+  }
+
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+  const winWidth = 840;
+  const winHeight = 640;
+  // Positioned beside note windows so active notes are 100% visible and readable
+  const defaultX = Math.max(20, Math.min(screenWidth - winWidth - 20, 80));
+  const defaultY = Math.max(30, Math.min(screenHeight - winHeight - 30, 50));
+
+  meetingWindow = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    minWidth: 600,
+    minHeight: 480,
+    x: defaultX,
+    y: defaultY,
+    frame: false,
+    show: false,
+    alwaysOnTop: false,
+    skipTaskbar: false,
+    movable: true,
+    resizable: true,
+    minimizable: true,
+    hasShadow: true,
+    roundedCorners: true,
+    backgroundColor: '#0f172a',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      webSecurity: false,
+      spellcheck: true
+    }
+  });
+
+  const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
+  const query = { mode: 'meeting', noteId: noteId || '' };
+  if (isDev) {
+    meetingWindow.loadURL(`http://localhost:5173/?mode=meeting&noteId=${encodeURIComponent(noteId || '')}#mode=meeting`);
+  } else {
+    meetingWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query,
+      hash: 'mode=meeting'
+    });
+  }
+
+  meetingWindow.once('ready-to-show', () => {
+    meetingWindow.show();
+    meetingWindow.focus();
+  });
+
+  meetingWindow.on('closed', () => {
+    meetingWindow = null;
+  });
+
+  return meetingWindow;
 }
 
 function createDockWindow() {
@@ -341,7 +799,10 @@ function createDockWindow() {
   });
 
   const isDockTop = settings.dockAlwaysOnTop !== false;
-  dockWindow.setAlwaysOnTop(isDockTop, 'floating', 2);
+  dockWindow.setAlwaysOnTop(isDockTop, 'screen-saver');
+  if (isDockTop) {
+    dockWindow.moveTop();
+  }
   dockWindow.setIgnoreMouseEvents(true, { forward: true });
 
   const isDev = !app.isPackaged && process.env.NODE_ENV === 'development';
@@ -356,6 +817,9 @@ function createDockWindow() {
 
   dockWindow.once('ready-to-show', () => {
     dockWindow.show();
+    if (isDockTop) {
+      dockWindow.moveTop();
+    }
   });
 
   setTimeout(() => {
@@ -394,10 +858,15 @@ function syncNoteToMarkdown(note) {
     const dir = ensureNotesDir();
     const safeTitle = (note.title || 'nota_sin_titulo')
       .replace(/[/\\?%*:|"<>]/g, '_')
-      .substring(0, 50)
-    const suffix = note.id ? note.id.replace(/^note-/, '').slice(-6) : Date.now().toString().slice(-6);
+      .replace(/\.\./g, '_')
+      .substring(0, 50);
+    const suffix = note.id ? note.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(-8) : Date.now().toString().slice(-6);
     const fileName = `${safeTitle || 'nota'}_${suffix}.md`;
     const filePath = path.join(dir, fileName);
+    if (!path.resolve(filePath).startsWith(path.resolve(dir))) {
+      console.warn('Blocked path traversal attempt in syncNoteToMarkdown');
+      return;
+    }
 
     const bitacoraYaml = (note.bitacora || [])
       .map(entry => `  - "${entry.timestamp} | ${entry.action} | ${(entry.summary || '').replace(/"/g, "'")}"`)
@@ -425,11 +894,109 @@ function syncNoteToMarkdown(note) {
   }
 }
 
+// Sanitize notes list: remove empty ghosts, duplicates, and malformed notes
+function sanitizeNotesList(rawNotes) {
+  if (!Array.isArray(rawNotes)) return [];
+
+  const seenIds = new Set();
+  const validNotes = [];
+
+  for (const note of rawNotes) {
+    if (!note || typeof note !== 'object' || !note.id) continue;
+    if (seenIds.has(note.id)) continue;
+    seenIds.add(note.id);
+
+    const titleText = (note.title || '').trim();
+    const mdText = (note.markdownContent || '').trim();
+    const contentText = (note.content || '')
+      .replace(/<[^>]*>?/gm, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+
+    const isCompletelyEmpty = !titleText && !mdText && !contentText;
+    // Discard empty ghost notes unless it is the only single note in the system
+    if (isCompletelyEmpty && rawNotes.length > 1) {
+      continue;
+    }
+
+    validNotes.push({
+      id: String(note.id),
+      title: note.title || '',
+      content: note.content || '',
+      markdownContent: note.markdownContent || '',
+      color: note.color || 'yellow',
+      isPinned: Boolean(note.isPinned),
+      createdAt: note.createdAt || new Date().toISOString(),
+      updatedAt: note.updatedAt || new Date().toISOString(),
+      tags: Array.isArray(note.tags) ? note.tags : [],
+      bitacora: Array.isArray(note.bitacora) ? note.bitacora : []
+    });
+  }
+
+  return validNotes;
+}
+
+// Clean up orphaned or renamed markdown files in the storage folder
+function cleanupOrphanedMarkdownFiles(validNotes) {
+  let removedCount = 0;
+  try {
+    const dir = ensureNotesDir();
+    if (!fs.existsSync(dir)) return 0;
+
+    const validIdSet = new Set((validNotes || []).map(n => String(n.id)));
+    const validSuffixSet = new Set((validNotes || []).map(n => {
+      return n.id ? n.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(-8) : '';
+    }).filter(Boolean));
+
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      if (!file.endsWith('.md')) continue;
+      const fullPath = path.join(dir, file);
+
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isFile()) continue;
+
+        let fileNoteId = null;
+        try {
+          const content = fs.readFileSync(fullPath, 'utf-8');
+          const idMatch = content.match(/^id:\s*["']?([^"'\r\n]+)["']?/m);
+          if (idMatch && idMatch[1]) {
+            fileNoteId = idMatch[1].trim();
+          }
+        } catch {}
+
+        let isOrphan = false;
+        if (fileNoteId) {
+          isOrphan = !validIdSet.has(fileNoteId);
+        } else {
+          const matchSuffix = file.match(/_([a-zA-Z0-9_-]+)\.md$/);
+          if (matchSuffix && matchSuffix[1]) {
+            isOrphan = !validSuffixSet.has(matchSuffix[1]);
+          } else {
+            isOrphan = true;
+          }
+        }
+
+        if (isOrphan) {
+          fs.unlinkSync(fullPath);
+          removedCount++;
+        }
+      } catch (err) {
+        console.warn('Error checking/removing markdown file:', file, err);
+      }
+    }
+  } catch (e) {
+    console.error('Error in cleanupOrphanedMarkdownFiles:', e);
+  }
+  return removedCount;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 440,
+    width: 490,
     height: 560,
-    minWidth: 360,
+    minWidth: 380,
     minHeight: 380,
     maxWidth: 950,
     maxHeight: 900,
@@ -445,7 +1012,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      webSecurity: false
+      webSecurity: false,
+      spellcheck: true
     }
   });
 
@@ -464,6 +1032,13 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     mainWindow.focus();
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      const s = loadSettingsDirect();
+      if (s.dockAlwaysOnTop !== false) {
+        dockWindow.setAlwaysOnTop(true, 'screen-saver');
+        dockWindow.moveTop();
+      }
+    }
   });
 
   // Fallback timeout in case ready-to-show is delayed
@@ -509,7 +1084,7 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
@@ -518,9 +1093,161 @@ if (!gotTheLock) {
     }
   });
 
+  // Global webContents handler for security and right-click context menu
+  app.on('web-contents-created', (_event, contents) => {
+    // Security: Prevent untrusted window creation and open web links in default system browser
+    contents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:')) {
+        shell.openExternal(url);
+      }
+      return { action: 'deny' };
+    });
+
+    contents.on('will-navigate', (e, navigationUrl) => {
+      try {
+        const parsed = new URL(navigationUrl);
+        if (parsed.protocol === 'file:' || parsed.host === 'localhost:5173') {
+          return;
+        }
+      } catch {}
+      e.preventDefault();
+      shell.openExternal(navigationUrl);
+    });
+
+    // Native Right-Click Context Menu: Spellcheck suggestions, Copy/Cut/Paste, and TTS
+    contents.on('context-menu', (_e, params) => {
+      const win = BrowserWindow.fromWebContents(contents);
+      if (!win || win.isDestroyed()) return;
+
+      const menuTemplate = [];
+
+      // 1. Spellchecker Suggestions for Misspelled Words
+      if (params.misspelledWord) {
+        if (Array.isArray(params.dictionarySuggestions) && params.dictionarySuggestions.length > 0) {
+          params.dictionarySuggestions.slice(0, 5).forEach((suggestion) => {
+            menuTemplate.push({
+              label: suggestion,
+              click: () => contents.replaceMisspelling(suggestion)
+            });
+          });
+        } else {
+          menuTemplate.push({
+            label: '(Sin sugerencias de corrección)',
+            enabled: false
+          });
+        }
+
+        menuTemplate.push({ type: 'separator' });
+        menuTemplate.push({
+          label: `Añadir "${params.misspelledWord}" al diccionario`,
+          click: () => {
+            if (contents.session && contents.session.addWordToSpellCheckerDictionary) {
+              contents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+            }
+          }
+        });
+        menuTemplate.push({ type: 'separator' });
+      }
+
+      const hasSelection = Boolean(params.selectionText && params.selectionText.trim().length > 0);
+
+      // 2. Clipboard & Edit Actions
+      if (params.isEditable) {
+        menuTemplate.push({
+          label: 'Deshacer',
+          role: 'undo',
+          enabled: params.editFlags.canUndo
+        });
+        menuTemplate.push({
+          label: 'Rehacer',
+          role: 'redo',
+          enabled: params.editFlags.canRedo
+        });
+        menuTemplate.push({ type: 'separator' });
+        menuTemplate.push({
+          label: 'Cortar',
+          role: 'cut',
+          enabled: params.editFlags.canCut
+        });
+        menuTemplate.push({
+          label: 'Copiar',
+          role: 'copy',
+          enabled: params.editFlags.canCopy || hasSelection
+        });
+        menuTemplate.push({
+          label: 'Pegar',
+          role: 'paste',
+          enabled: params.editFlags.canPaste
+        });
+        menuTemplate.push({
+          label: 'Seleccionar todo',
+          role: 'selectAll',
+          enabled: params.editFlags.canSelectAll
+        });
+      } else {
+        if (hasSelection) {
+          menuTemplate.push({
+            label: 'Copiar',
+            role: 'copy',
+            enabled: true
+          });
+        }
+        menuTemplate.push({
+          label: 'Seleccionar todo',
+          role: 'selectAll'
+        });
+      }
+
+      // 3. Text-to-Speech (Lectura de la nota)
+      menuTemplate.push({ type: 'separator' });
+      if (hasSelection) {
+        menuTemplate.push({
+          label: '🔊 Leer selección en voz alta',
+          click: () => {
+            contents.send('tts:speak-selection', params.selectionText);
+          }
+        });
+      }
+      menuTemplate.push({
+        label: '🔊 Leer toda la nota en voz alta',
+        click: () => {
+          contents.send('tts:speak-current-note');
+        }
+      });
+
+      if (menuTemplate.length > 0) {
+        const contextMenu = Menu.buildFromTemplate(menuTemplate);
+        contextMenu.popup({ window: win });
+      }
+    });
+  });
+
   app.whenReady().then(() => {
-    // Grant media and audio capture permissions
+    // Configure Spellchecker Languages (prioritizing Latin American Spanish)
     if (session.defaultSession) {
+      try {
+        session.defaultSession.setSpellCheckerLanguages(['es-419', 'es-ES', 'es', 'en-US']);
+      } catch (e) {
+        try {
+          session.defaultSession.setSpellCheckerLanguages(['es', 'en-US']);
+        } catch (err) {}
+      }
+
+      // Intercept Edge Neural TTS WebSockets to set valid Edge Origin & User-Agent
+      try {
+        session.defaultSession.webRequest.onBeforeSendHeaders(
+          { urls: ['*://speech.platform.bing.com/*', 'wss://speech.platform.bing.com/*'] },
+          (details, callback) => {
+            details.requestHeaders['Origin'] = 'chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold';
+            details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
+            callback({ requestHeaders: details.requestHeaders });
+          }
+        );
+      } catch (e) {
+        console.warn('Error setting onBeforeSendHeaders for TTS:', e);
+      }
+
+      // Grant media and audio capture permissions
       session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
         callback(true);
       });
@@ -545,21 +1272,33 @@ if (!gotTheLock) {
     } catch (e) {
       console.error('Error during ensureNotesDir in whenReady:', e);
     }
-    createWindow();
+
+    // Always create and display the Notebook Dock (clean small tabs pinned flush to screen edge)
     createDockWindow();
+
+    // Check startup preference: default to starting with dock only so PC startup never pops open the big window!
+    const settings = loadSettingsDirect();
+    const startDockOnly = settings.startDockOnly !== false;
+    const hasShowMainFlag = process.argv.includes('--show-main') || process.argv.includes('--open-main');
+
+    if (!startDockOnly || hasShowMainFlag) {
+      createWindow();
+    }
 
     const { screen } = require('electron');
     screen.on('display-metrics-changed', () => {
       if (dockWindow && !dockWindow.isDestroyed()) {
-        const settings = loadSettingsDirect();
-        const bounds = getDockBounds(settings.dockPosition || 'right');
+        const s = loadSettingsDirect();
+        const bounds = getDockBounds(s.dockPosition || 'right');
         dockWindow.setBounds(bounds);
       }
     });
 
     app.on('activate', () => {
+      if (!dockWindow || dockWindow.isDestroyed()) {
+        createDockWindow();
+      }
       if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
         createDockWindow();
       }
     });
@@ -613,6 +1352,17 @@ ipcMain.handle('window:toggleAlwaysOnTop', (event) => {
     const nextState = !senderWin.isAlwaysOnTop();
     senderWin.setAlwaysOnTop(nextState, 'floating', 1);
     senderWin.webContents.send('always-on-top-changed', nextState);
+
+    // CRITICAL: Unpinning a note window must NEVER affect or demote the notebook dock!
+    // The lateral dock tabs must ALWAYS stay pinned on top of the screen.
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      const s = loadSettingsDirect();
+      if (s.dockAlwaysOnTop !== false) {
+        dockWindow.setAlwaysOnTop(true, 'screen-saver');
+        dockWindow.moveTop();
+      }
+    }
+
     return nextState;
   }
   return false;
@@ -659,12 +1409,16 @@ ipcMain.handle('notes:load', () => {
 
 ipcMain.handle('notes:save', (_event, notes) => {
   try {
+    const sanitizedNotes = sanitizeNotesList(notes);
     const filePath = getDataFilePath();
-    fs.writeFileSync(filePath, JSON.stringify(notes, null, 2), 'utf-8');
+    fs.writeFileSync(filePath, JSON.stringify(sanitizedNotes, null, 2), 'utf-8');
+
+    // Clean up any orphaned markdown files on note deletion/rename
+    cleanupOrphanedMarkdownFiles(sanitizedNotes);
 
     // Also mirror to local markdown files and broadcast to all open note windows and dock
-    if (Array.isArray(notes)) {
-      notes.forEach(note => {
+    if (Array.isArray(sanitizedNotes)) {
+      sanitizedNotes.forEach(note => {
         syncNoteToMarkdown(note);
         if (miniStickyWindows.has(note.id)) {
           const miniWin = miniStickyWindows.get(note.id);
@@ -675,14 +1429,35 @@ ipcMain.handle('notes:save', (_event, notes) => {
       });
     }
 
+    // Also mirror to active storage folder (OneDrive, Google Drive, or Documents)
+    try {
+      const storageDir = getStorageDir();
+      fs.writeFileSync(path.join(storageDir, 'stickyflow_database.json'), JSON.stringify(sanitizedNotes, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('Error mirroring stickyflow_database.json:', e);
+    }
+
+    // Auto-backup check (Daily / Weekly)
+    try {
+      const s = loadSettingsDirect();
+      if (s.autoBackupEnabled !== false) {
+        const lastTime = s.lastBackupTime ? new Date(s.lastBackupTime).getTime() : 0;
+        const now = Date.now();
+        const intervalHours = (s.autoBackupFrequency === 'weekly' ? 7 * 24 : 24);
+        if (now - lastTime > intervalHours * 3600 * 1000) {
+          createBackupFile(sanitizedNotes, s);
+        }
+      }
+    } catch {}
+
     BrowserWindow.getAllWindows().forEach(win => {
       if (!win.isDestroyed() && win.webContents !== _event.sender) {
-        win.webContents.send('notes:updated', notes);
+        win.webContents.send('notes:updated', sanitizedNotes);
       }
     });
 
     if (dockWindow && !dockWindow.isDestroyed()) {
-      dockWindow.webContents.send('dock:notes-updated', notes);
+      dockWindow.webContents.send('dock:notes-updated', sanitizedNotes);
     }
     return { success: true };
   } catch (err) {
@@ -691,25 +1466,291 @@ ipcMain.handle('notes:save', (_event, notes) => {
   }
 });
 
+// Clean Garbage: Purge deleted/ghost notes and orphaned markdown files
+ipcMain.handle('notes:clean-garbage', () => {
+  try {
+    const filePath = getDataFilePath();
+    let rawNotes = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        rawNotes = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      } catch {}
+    }
+
+    const sanitizedNotes = sanitizeNotesList(rawNotes);
+    const notesRemoved = Math.max(0, rawNotes.length - sanitizedNotes.length);
+    const orphanedFilesRemoved = cleanupOrphanedMarkdownFiles(sanitizedNotes);
+
+    // Save cleaned notes to both storage locations
+    fs.writeFileSync(filePath, JSON.stringify(sanitizedNotes, null, 2), 'utf-8');
+    try {
+      const storageDir = getStorageDir();
+      fs.writeFileSync(path.join(storageDir, 'stickyflow_database.json'), JSON.stringify(sanitizedNotes, null, 2), 'utf-8');
+    } catch {}
+
+    // Resync valid markdown files
+    sanitizedNotes.forEach(note => syncNoteToMarkdown(note));
+
+    // Broadcast clean notes to all open windows and dock
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('notes:updated', sanitizedNotes);
+      }
+    });
+
+    if (dockWindow && !dockWindow.isDestroyed()) {
+      dockWindow.webContents.send('dock:notes-updated', sanitizedNotes);
+    }
+
+    return {
+      success: true,
+      removedCount: notesRemoved + orphanedFilesRemoved,
+      notesRemoved,
+      orphanedFilesRemoved,
+      remainingCount: sanitizedNotes.length
+    };
+  } catch (err) {
+    console.error('Error cleaning notes garbage:', err);
+    return { success: false, error: err.message, removedCount: 0, remainingCount: 0 };
+  }
+});
+
+// Independent Windows IPC Handlers
+ipcMain.handle('window:open-settings', () => {
+  openSettingsWindow();
+  return true;
+});
+
+ipcMain.handle('window:open-meeting', (_event, noteId) => {
+  openMeetingWindow(noteId);
+  return true;
+});
+
+// Backup & Cloud Storage IPC Handlers
+ipcMain.handle('backup:get-info', () => {
+  const settings = loadSettingsDirect();
+  const clouds = detectCloudFolders();
+  const backups = listBackups();
+  return {
+    activeStorageDir: getStorageDir(),
+    detectedClouds: clouds,
+    lastBackupTime: settings.lastBackupTime,
+    lastBackupSize: settings.lastBackupSize,
+    backupCount: backups.length,
+    autoBackupEnabled: settings.autoBackupEnabled !== false,
+    autoBackupFrequency: settings.autoBackupFrequency || 'daily'
+  };
+});
+
+ipcMain.handle('backup:create-now', () => {
+  const notesPath = getDataFilePath();
+  let notes = [];
+  try {
+    if (fs.existsSync(notesPath)) {
+      notes = JSON.parse(fs.readFileSync(notesPath, 'utf-8'));
+    }
+  } catch {}
+  // Sanitize notes before backing up and clean orphaned files
+  const sanitized = sanitizeNotesList(notes);
+  try {
+    fs.writeFileSync(notesPath, JSON.stringify(sanitized, null, 2), 'utf-8');
+  } catch {}
+  cleanupOrphanedMarkdownFiles(sanitized);
+
+  const settings = loadSettingsDirect();
+  return createBackupFile(sanitized, settings);
+});
+
+ipcMain.handle('backup:list', () => {
+  return listBackups();
+});
+
+ipcMain.handle('backup:restore-file', (_event, filePath) => {
+  let targetPath = filePath;
+  if (!targetPath) {
+    const list = listBackups();
+    if (list.length > 0) {
+      targetPath = list[0].filePath;
+    }
+  }
+  if (!targetPath) {
+    return { success: false, error: 'No se encontró ningún archivo de respaldo.' };
+  }
+  return restoreBackupFromFile(targetPath);
+});
+
+ipcMain.handle('backup:export-dialog', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const defaultPath = path.join(app.getPath('documents'), `StickyFlow_Backup_${dateStr}.json`);
+
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Exportar Copia de Seguridad de StickyFlow',
+    defaultPath,
+    filters: [{ name: 'Copia de Seguridad StickyFlow (*.json)', extensions: ['json'] }]
+  });
+
+  if (canceled || !filePath) return { success: false };
+
+  const notesPath = getDataFilePath();
+  let notes = [];
+  try {
+    if (fs.existsSync(notesPath)) {
+      notes = JSON.parse(fs.readFileSync(notesPath, 'utf-8'));
+    }
+  } catch {}
+  const sanitized = sanitizeNotesList(notes);
+  const settings = loadSettingsDirect();
+  const backupPayload = {
+    app: 'StickyFlow',
+    version: '1.0.0',
+    timestamp: d.toISOString(),
+    notesCount: sanitized.length,
+    notes: sanitized,
+    settings
+  };
+
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(backupPayload, null, 2), 'utf-8');
+    return { success: true, filePath };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('backup:import-dialog', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Restaurar Copia de Seguridad de StickyFlow',
+    filters: [
+      { name: 'Respaldos StickyFlow (*.json, *.stickyflow-backup)', extensions: ['json', 'stickyflow-backup'] },
+      { name: 'Todos los archivos', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+
+  if (canceled || !filePaths || filePaths.length === 0) {
+    return { success: false };
+  }
+
+  return restoreBackupFromFile(filePaths[0]);
+});
+
+ipcMain.handle('backup:change-storage-dir', (_event, newPath, copyExisting) => {
+  try {
+    if (!newPath || typeof newPath !== 'string') {
+      return { success: false, error: 'Ruta no válida' };
+    }
+
+    if (!fs.existsSync(newPath)) {
+      fs.mkdirSync(newPath, { recursive: true });
+    }
+
+    const settings = loadSettingsDirect();
+    const oldDir = getStorageDir();
+    settings.customStorageDir = newPath;
+
+    // Detect cloud provider type
+    const clouds = detectCloudFolders();
+    const matched = clouds.find(c => path.resolve(c.path) === path.resolve(newPath));
+    if (matched) {
+      settings.cloudProvider = matched.type;
+    } else {
+      settings.cloudProvider = 'custom';
+    }
+
+    fs.writeFileSync(getSettingsFilePath(), JSON.stringify(settings, null, 2), 'utf-8');
+
+    // Optionally copy existing files to the new storage folder
+    if (copyExisting && oldDir !== newPath && fs.existsSync(oldDir)) {
+      try {
+        const files = fs.readdirSync(oldDir);
+        for (const file of files) {
+          const src = path.join(oldDir, file);
+          const dest = path.join(newPath, file);
+          if (fs.statSync(src).isFile() && !fs.existsSync(dest)) {
+            fs.copyFileSync(src, dest);
+          }
+        }
+      } catch (e) {
+        console.warn('Error copying files to new storage dir:', e);
+      }
+    }
+
+    // Mirror current notes to new location
+    try {
+      const notesPath = getDataFilePath();
+      if (fs.existsSync(notesPath)) {
+        const notes = JSON.parse(fs.readFileSync(notesPath, 'utf-8'));
+        fs.writeFileSync(path.join(newPath, 'stickyflow_database.json'), JSON.stringify(notes, null, 2), 'utf-8');
+        notes.forEach(n => syncNoteToMarkdown(n));
+      }
+    } catch {}
+
+    return { success: true, dir: newPath };
+  } catch (err) {
+    console.error('Error changing storage dir:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('backup:select-folder-dialog', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Seleccionar Carpeta para Notas y Copia de Seguridad',
+    properties: ['openDirectory', 'createDirectory']
+  });
+
+  if (canceled || !filePaths || filePaths.length === 0) {
+    return null;
+  }
+  return filePaths[0];
+});
+
 ipcMain.handle('settings:load', () => {
   try {
     const filePath = getSettingsFilePath();
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      if (
+        !parsed.hfModel ||
+        parsed.hfModel === 'openai/gpt-oss-120b' ||
+        parsed.hfModel.includes('Mistral-7B-Instruct-v0.3')
+      ) {
+        parsed.hfModel = 'Qwen/Qwen2.5-72B-Instruct';
+      }
+      if (parsed.dockAlwaysOnTop === undefined) parsed.dockAlwaysOnTop = true;
+      if (parsed.startDockOnly === undefined) parsed.startDockOnly = true;
+      if (!parsed.ttsVoice) parsed.ttsVoice = 'es-MX-DaliaNeural';
+      if (parsed.useNeuralTts === undefined) parsed.useNeuralTts = true;
+      if (parsed.autoBackupEnabled === undefined) parsed.autoBackupEnabled = true;
+      if (!parsed.autoBackupFrequency) parsed.autoBackupFrequency = 'daily';
+      return parsed;
     }
     return {
       hfEndpoint: 'https://router.huggingface.co/v1',
-      hfModel: 'openai/gpt-oss-120b',
+      hfModel: 'Qwen/Qwen2.5-72B-Instruct',
       hfApiKey: '',
       claudeApiKey: '',
       activeAiProvider: 'huggingface',
       alwaysOnTop: true,
       defaultColor: 'yellow',
       opacity: 0.98,
+      startDockOnly: true,
+      ttsVoice: 'es-MX-DaliaNeural',
+      ttsRate: 1.0,
+      ttsPitch: 1.0,
+      ttsVolume: 1.0,
+      useNeuralTts: true,
+      autoBackupEnabled: true,
+      autoBackupFrequency: 'daily',
       dockPosition: 'right',
       dockShowTitles: true,
       dockEnabled: true,
+      dockAlwaysOnTop: true,
       dockedNoteIds: []
     };
   } catch (err) {
@@ -736,7 +1777,10 @@ ipcMain.handle('settings:save', (_event, settings) => {
         dockWindow.setBounds(bounds);
       }
       if (typeof settings.dockAlwaysOnTop === 'boolean') {
-        dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'floating', 2);
+        dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'screen-saver');
+        if (settings.dockAlwaysOnTop) {
+          dockWindow.moveTop();
+        }
       }
       if (settings.dockEnabled === false) {
         dockWindow.hide();
@@ -942,13 +1986,27 @@ ipcMain.handle('dock:set-always-on-top', (_event, value) => {
     console.error('Error saving settings dockAlwaysOnTop:', err);
   }
   if (dockWindow && !dockWindow.isDestroyed()) {
-    dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'floating', 2);
+    dockWindow.setAlwaysOnTop(settings.dockAlwaysOnTop, 'screen-saver');
+    if (settings.dockAlwaysOnTop) {
+      dockWindow.moveTop();
+    }
     dockWindow.webContents.send('dock:settings-updated', settings);
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('dock:settings-updated', settings);
   }
   return settings.dockAlwaysOnTop;
+});
+
+ipcMain.handle('dock:bring-to-top', () => {
+  if (dockWindow && !dockWindow.isDestroyed()) {
+    const settings = loadSettingsDirect();
+    if (settings.dockAlwaysOnTop !== false) {
+      dockWindow.setAlwaysOnTop(true, 'screen-saver');
+      dockWindow.moveTop();
+    }
+  }
+  return true;
 });
 
 ipcMain.handle('app:quit', () => {

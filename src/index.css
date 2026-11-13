@@ -12,6 +12,11 @@ body {
   overflow: hidden;
 }
 
+input, textarea, [contenteditable="true"], .tiptap {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
@@ -223,6 +228,38 @@ ul[data-type="taskList"] li[data-checked="true"] > div {
 }
 .note-bg-pink .note-header {
   background-color: #f9a8d4;
+}
+
+.note-bg-orange {
+  background-color: #fed7aa;
+  color: #7c2d12;
+}
+.note-bg-orange .note-header {
+  background-color: #fdba74;
+}
+
+.note-bg-coral {
+  background-color: #fecaca;
+  color: #881337;
+}
+.note-bg-coral .note-header {
+  background-color: #fca5a5;
+}
+
+.note-bg-indigo {
+  background-color: #c7d2fe;
+  color: #1e1b4b;
+}
+.note-bg-indigo .note-header {
+  background-color: #a5b4fc;
+}
+
+.note-bg-teal {
+  background-color: #99f6e4;
+  color: #134e4a;
+}
+.note-bg-teal .note-header {
+  background-color: #5eead4;
 }
 
 .note-bg-dark {

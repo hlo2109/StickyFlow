@@ -5,7 +5,7 @@ export interface BitacoraEntry {
   summary: string;
 }
 
-export type NoteColor = 'yellow' | 'blue' | 'green' | 'purple' | 'pink' | 'dark';
+export type NoteColor = 'yellow' | 'orange' | 'coral' | 'pink' | 'purple' | 'indigo' | 'blue' | 'teal' | 'green' | 'dark';
 
 export interface Note {
   id: string;
@@ -18,6 +18,15 @@ export interface Note {
   updatedAt: string;
   tags: string[];
   bitacora: BitacoraEntry[];
+}
+
+export interface MeetingDoubt {
+  id: string;
+  question: string;
+  status: 'open' | 'resolved';
+  resolvedAnswer?: string;
+  resolvedAt?: string;
+  createdAt: string;
 }
 
 export type DbMode = 'local' | 'remote';
@@ -54,12 +63,26 @@ export interface AppSettings {
 
   // Audio & Speech
   speechLang: string; // e.g. 'es-ES'
+  ttsVoice?: string; // Voice URI or Neural Voice ID (e.g. 'es-MX-DaliaNeural')
+  ttsRate?: number; // 0.7 - 1.5, default 1.0
+  ttsPitch?: number; // 0.8 - 1.2, default 1.0
+  ttsVolume?: number; // 0.1 - 1.0, default 1.0
+  useNeuralTts?: boolean; // True for ultra-natural human voice (default true)
 
   // Window & Appearance
   alwaysOnTop: boolean;
   defaultColor: NoteColor;
   opacity: number;
   notesFolderPath?: string;
+  startDockOnly?: boolean; // When PC/app starts, only show the small notebook dock tabs (default true)
+
+  // Cloud Backup & Storage Sync
+  customStorageDir?: string;
+  cloudProvider?: 'documents' | 'onedrive' | 'gdrive' | 'dropbox' | 'icloud' | 'custom';
+  autoBackupEnabled?: boolean;
+  autoBackupFrequency?: 'daily' | 'weekly' | 'manual';
+  lastBackupTime?: string;
+  lastBackupSize?: string;
 
   // Notebook Separators Dock (Separadores de Cuaderno)
   dockPosition?: 'left' | 'right' | 'top' | 'bottom';
@@ -67,6 +90,35 @@ export interface AppSettings {
   dockEnabled?: boolean;
   dockAlwaysOnTop?: boolean;
   dockedNoteIds?: string[];
+}
+
+export interface CloudFolderItem {
+  id: string;
+  name: string;
+  type: 'local' | 'onedrive' | 'gdrive' | 'dropbox' | 'icloud' | 'custom';
+  path: string;
+  exists: boolean;
+  isCloud: boolean;
+  icon: string;
+}
+
+export interface BackupFileItem {
+  fileName: string;
+  filePath: string;
+  size: string;
+  sizeBytes: number;
+  time: string;
+  notesCount: number;
+}
+
+export interface BackupStatusInfo {
+  activeStorageDir: string;
+  detectedClouds: CloudFolderItem[];
+  lastBackupTime?: string;
+  lastBackupSize?: string;
+  backupCount: number;
+  autoBackupEnabled: boolean;
+  autoBackupFrequency: 'daily' | 'weekly' | 'manual';
 }
 
 export interface ElectronAPI {
@@ -87,6 +139,21 @@ export interface ElectronAPI {
   onAlwaysOnTopChanged: (callback: (val: boolean) => void) => void;
   getDesktopSources?: () => Promise<Array<{ id: string; name: string }>>;
 
+  // Cloud Backup & Storage API
+  getBackupInfo?: () => Promise<BackupStatusInfo>;
+  createBackup?: () => Promise<{ success: boolean; filePath?: string; fileName?: string; timestamp?: string; size?: string; notesCount?: number; error?: string }>;
+  listBackups?: () => Promise<BackupFileItem[]>;
+  restoreBackup?: (filePath?: string) => Promise<{ success: boolean; count?: number; error?: string }>;
+  exportBackupDialog?: () => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  importBackupDialog?: () => Promise<{ success: boolean; count?: number; error?: string }>;
+  changeStorageDir?: (newPath: string, copyExisting?: boolean) => Promise<{ success: boolean; dir?: string; error?: string }>;
+  selectFolderDialog?: () => Promise<string | null>;
+  cleanNotesGarbage?: () => Promise<{ success: boolean; removedCount: number; remainingCount: number }>;
+
+  // Independent Windows (Configuración y Dictado/Reunión)
+  openSettingsWindow?: () => Promise<void>;
+  openMeetingWindow?: (noteId?: string) => Promise<void>;
+
   // Mini Stickies (multi-window floating desktop widgets)
   openMiniSticky: (note: Note) => Promise<void>;
   closeMiniSticky: (noteId: string) => Promise<void>;
@@ -101,6 +168,7 @@ export interface ElectronAPI {
   setDockMouseIgnore?: (ignore: boolean) => Promise<boolean>;
   setDockPosition?: (pos: 'left' | 'right' | 'top' | 'bottom') => Promise<boolean>;
   setDockAlwaysOnTop?: (val: boolean) => Promise<boolean>;
+  bringDockToTop?: () => Promise<boolean>;
   openNoteInMain?: (noteId: string) => Promise<boolean>;
   openNoteWindow?: (noteId: string) => Promise<boolean>;
   toggleDockPin?: (noteId: string) => Promise<string[]>;
@@ -110,6 +178,13 @@ export interface ElectronAPI {
   onDockNotesUpdated?: (callback: (notes: Note[]) => void) => void;
   onDockSettingsUpdated?: (callback: (settings: AppSettings) => void) => void;
   onDockedIdsChanged?: (callback: (dockedIds: string[]) => void) => void;
+
+  // Text-To-Speech context menu events
+  onTtsSpeakSelection?: (callback: (text: string) => void) => void;
+  onTtsSpeakCurrentNote?: (callback: () => void) => void;
+
+  // Meeting window target note update
+  onMeetingSetNoteId?: (callback: (noteId: string) => void) => void;
 }
 
 declare global {
@@ -117,3 +192,4 @@ declare global {
     electronAPI?: ElectronAPI;
   }
 }
+

@@ -8,10 +8,11 @@ import { BitacoraModal } from './components/BitacoraModal';
 import { SettingsModal } from './components/SettingsModal';
 import { MeetingModal } from './components/MeetingModal';
 import { htmlToMarkdown, markdownToHtml, formatNoteForClaude } from './utils/markdown';
+import { ttsService } from './utils/ttsService';
 
 const DEFAULT_SETTINGS: AppSettings = {
   hfEndpoint: 'https://router.huggingface.co/v1',
-  hfModel: 'openai/gpt-oss-120b',
+  hfModel: 'Qwen/Qwen2.5-72B-Instruct',
   hfApiKey: '',
   claudeApiKey: '',
   claudeModel: 'claude-3-5-sonnet-20241022',
@@ -29,12 +30,21 @@ const DEFAULT_SETTINGS: AppSettings = {
   enablePrivacyMasking: true,
   maskSensitiveRegex: true,
   speechLang: 'es-ES',
+  ttsVoice: 'es-MX-DaliaNeural',
+  ttsRate: 1.0,
+  ttsPitch: 1.0,
+  ttsVolume: 1.0,
+  useNeuralTts: true,
+  autoBackupEnabled: true,
+  autoBackupFrequency: 'daily',
   alwaysOnTop: true,
   defaultColor: 'yellow',
   opacity: 0.98,
+  startDockOnly: true,
   dockPosition: 'right',
   dockShowTitles: true,
   dockEnabled: true,
+  dockAlwaysOnTop: true,
   dockedNoteIds: []
 };
 
@@ -138,7 +148,15 @@ export const App: React.FC = () => {
       }
 
       if (loadedSettings) {
-        setSettings({ ...DEFAULT_SETTINGS, ...loadedSettings });
+        const sanitized = { ...DEFAULT_SETTINGS, ...loadedSettings };
+        if (
+          !sanitized.hfModel ||
+          sanitized.hfModel === 'openai/gpt-oss-120b' ||
+          sanitized.hfModel.includes('Mistral-7B-Instruct-v0.3')
+        ) {
+          sanitized.hfModel = 'Qwen/Qwen2.5-72B-Instruct';
+        }
+        setSettings(sanitized);
       }
 
       if (loadedNotes && loadedNotes.length > 0) {
@@ -299,8 +317,9 @@ export const App: React.FC = () => {
     });
   };
 
-  // Safe Note Selection - cancels any pending debounced save
+  // Safe Note Selection - cancels any pending debounced save & active TTS
   const handleSelectNote = (id: string) => {
+    ttsService.stop();
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
@@ -515,9 +534,9 @@ export const App: React.FC = () => {
 
     if (window.electronAPI?.resizeWindow) {
       if (nextState) {
-        window.electronAPI.resizeWindow(730, 600);
+        window.electronAPI.resizeWindow(780, 600);
       } else {
-        window.electronAPI.resizeWindow(440, 560);
+        window.electronAPI.resizeWindow(490, 560);
       }
     }
   };
@@ -611,6 +630,35 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleReadCurrentNote = () => {
+    if (!activeNote) return;
+    const textToRead = activeNote.markdownContent || htmlToMarkdown(activeNote.content || '');
+    ttsService.speak(textToRead, {
+      title: activeNote.title,
+      voiceURI: settings.ttsVoice || 'es-MX-DaliaNeural',
+      rate: settings.ttsRate || 1.0,
+      pitch: settings.ttsPitch || 1.0,
+      volume: settings.ttsVolume || 1.0,
+      useNeuralTts: settings.useNeuralTts !== false
+    });
+  };
+
+  const handleOpenSettingsAction = () => {
+    if (window.electronAPI?.openSettingsWindow) {
+      window.electronAPI.openSettingsWindow();
+    } else {
+      setIsSettingsModalOpen(true);
+    }
+  };
+
+  const handleOpenMeetingAction = () => {
+    if (window.electronAPI?.openMeetingWindow) {
+      window.electronAPI.openMeetingWindow(activeNote?.id);
+    } else {
+      setIsMeetingModalOpen(true);
+    }
+  };
+
   const currentColor = activeNote?.color || 'yellow';
 
   return (
@@ -631,14 +679,15 @@ export const App: React.FC = () => {
         isSidebarOpen={isSidebarOpen}
         onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenBitacoraModal={() => setIsBitacoraModalOpen(true)}
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
-        onOpenMeetingMode={() => setIsMeetingModalOpen(true)}
+        onOpenSettings={handleOpenSettingsAction}
+        onOpenMeetingMode={handleOpenMeetingAction}
         onCopyMarkdown={handleCopyMarkdown}
         onCopyForClaude={handleCopyForClaude}
         onOpenFolder={handleOpenFolder}
         onToggleMiniStick={activeNote ? () => handleToggleMiniSticky(activeNote) : undefined}
         isMiniPinned={activeNote ? (dockedNoteIds.includes(activeNote.id) || openMiniStickIds.includes(activeNote.id)) : false}
         onOpenInNewWindow={() => handleOpenInNewWindow(activeNote?.id)}
+        onReadNote={handleReadCurrentNote}
       />
 
       {/* Main Workspace (Editor + Right Collapsible Sidebar) */}
@@ -651,7 +700,7 @@ export const App: React.FC = () => {
               settings={settings}
               onChange={handleUpdateNote}
               onAddBitacoraLog={handleAddBitacoraLog}
-              onOpenMeetingMode={() => setIsMeetingModalOpen(true)}
+              onOpenMeetingMode={handleOpenMeetingAction}
               onToggleMiniSticky={handleToggleMiniSticky}
               isMiniPinned={dockedNoteIds.includes(activeNote.id) || openMiniStickIds.includes(activeNote.id)}
             />
@@ -687,10 +736,7 @@ export const App: React.FC = () => {
             note={activeNote}
             allNotes={notes}
             settings={settings}
-            onOpenSettings={() => {
-              setIsAiModalOpen(false);
-              setIsSettingsModalOpen(true);
-            }}
+            onOpenSettings={handleOpenSettingsAction}
             onInsertResult={handleInsertAiResult}
             onReplaceResult={handleReplaceAiResult}
             onCreateNewNoteFromAi={handleCreateNewNoteFromAi}
