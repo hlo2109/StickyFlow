@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SettingsModal } from './SettingsModal';
+import { SettingsModal } from '../features/settings/SettingsModal';
 import { AppSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../defaultSettings';
 

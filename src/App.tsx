@@ -5,7 +5,7 @@ import { Editor } from './components/Editor';
 import { Sidebar } from './components/Sidebar';
 import { AiModal } from './components/AiModal';
 import { BitacoraModal } from './components/BitacoraModal';
-import { SettingsModal } from './components/SettingsModal';
+import { SettingsModal } from './features/settings/SettingsModal';
 import { MeetingModal } from './components/MeetingModal';
 import { htmlToMarkdown, markdownToHtml, formatNoteForClaude } from './utils/markdown';
 import { ttsService } from './utils/ttsService';
