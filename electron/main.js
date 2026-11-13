@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, shell, clipboard, session, desktopCapturer, Menu, MenuItem, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const secureSettings = require('./secureSettings');
 
 let mainWindow = null;
@@ -1840,6 +1841,21 @@ ipcMain.handle('system-audio:getSources', async () => {
   } catch (e) {
     console.error('Error getting desktop sources:', e);
     return [];
+  }
+});
+
+// Abre el panel de Sonido de Windows (para renombrar el micrófono virtual, ver niveles, etc.).
+// Solo acepta dos valores fijos: el renderer nunca puede pasar comandos ni argumentos propios.
+ipcMain.handle('system:open-sound-panel', (_event, tab) => {
+  if (process.platform !== 'win32') return false;
+  const tabs = { playback: 0, recording: 1 };
+  if (typeof tab !== 'string' || !Object.prototype.hasOwnProperty.call(tabs, tab)) return false;
+  try {
+    spawn('rundll32.exe', ['shell32.dll,Control_RunDLL', `mmsys.cpl,,${tabs[tab]}`], { detached: true, stdio: 'ignore' }).unref();
+    return true;
+  } catch (err) {
+    console.error('No se pudo abrir el panel de sonido:', err);
+    return false;
   }
 });
 

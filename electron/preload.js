@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Clipboard
   writeClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
+  openSoundPanel: (tab) => ipcRenderer.invoke('system:open-sound-panel', tab),
 
   // Audio / Desktop Sources
   getDesktopSources: () => ipcRenderer.invoke('system-audio:getSources'),

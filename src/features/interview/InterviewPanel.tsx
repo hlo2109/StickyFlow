@@ -20,6 +20,8 @@ import { useInterviewSession } from './useInterviewSession';
 import { isUsableVirtualSink, InterviewLine } from './session';
 import { languageName } from './languages';
 import { isAiReady } from '../ai/status';
+import { VirtualMicAssistant } from './VirtualMicAssistant';
+import { findPairedInput, isVirtualOutputLabel } from './services/virtualMic';
 
 interface InterviewPanelProps {
   settings: AppSettings;
@@ -115,6 +117,7 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
   const [micId, setMicId] = useState('');
   const [outputId, setOutputId] = useState(settings.interviewOutputDeviceId || '');
   const [theirSourceId, setTheirSourceId] = useState(settings.interviewTheirAudioDeviceId || '');
+  const [virtualInputId, setVirtualInputId] = useState(settings.interviewVirtualMicInputId || '');
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
@@ -151,12 +154,31 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
 
   const handleOutputChange = (id: string) => {
     setOutputId(id);
-    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: id });
+    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: id, interviewTheirAudioDeviceId: theirSourceId, interviewVirtualMicInputId: virtualInputId });
+  };
+
+  // Empareja el micrófono virtual con la salida elegida (si todavía no hay uno válido).
+  useEffect(() => {
+    const out = outputs.find((o) => o.id === outputId);
+    if (!out || !isVirtualOutputLabel(out.label)) return;
+    if (virtualInputId && mics.some((m) => m.id === virtualInputId)) return;
+    const pair = findPairedInput(out, mics);
+    if (pair.input) setVirtualInputId(pair.input.id);
+  }, [outputs, mics, outputId, virtualInputId]);
+
+  const handleVirtualInputChange = (id: string) => {
+    setVirtualInputId(id);
+    window.electronAPI?.saveSettings?.({
+      ...settings,
+      interviewOutputDeviceId: outputId,
+      interviewTheirAudioDeviceId: theirSourceId,
+      interviewVirtualMicInputId: id
+    });
   };
 
   const handleTheirSourceChange = (id: string) => {
     setTheirSourceId(id);
-    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: id });
+    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: id, interviewVirtualMicInputId: virtualInputId });
   };
 
   // Fuentes válidas para «Ellos»: nunca tu propio micrófono ni el cable por donde sale tu voz traducida
@@ -262,7 +284,7 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-slate-400">Salida de tu voz traducida (micrófono virtual)</span>
+          <span className="text-slate-400">Salida de StickyFlow (por donde sale tu voz traducida)</span>
           <select
             value={outputId}
             onChange={(e) => handleOutputChange(e.target.value)}
@@ -294,6 +316,16 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           {autoSpeak && voiceReady && sinkReady ? 'Hablar automático' : 'Hablar manual'}
         </button>
       </div>
+
+      {/* Micrófono virtual de StickyFlow: emparejar, probar y nombrar */}
+      <VirtualMicAssistant
+        outputs={outputs}
+        inputs={mics}
+        outputId={outputId}
+        inputId={virtualInputId}
+        onInputChange={handleVirtualInputChange}
+        disabled={snapshot.running}
+      />
 
       {/* Fuente del audio de ellos */}
       <div className="px-4 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-4 gap-y-1.5 shrink-0 text-xs">

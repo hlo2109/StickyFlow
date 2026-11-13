@@ -79,6 +79,7 @@ export interface AppSettings {
   interviewMyLang?: string; // idioma en el que hablas, p. ej. 'es'
   interviewTheirLang?: string; // idioma de la otra persona, p. ej. 'en'
   interviewOutputDeviceId?: string; // micrófono virtual (VB-CABLE) donde sale tu voz traducida
+  interviewVirtualMicInputId?: string; // el micrófono virtual que se elige en la videollamada (la otra mitad del cable)
   interviewTheirAudioDeviceId?: string; // fuente del audio de ellos: vacío = audio del sistema (todo); o un dispositivo de entrada aislado
   interviewContext?: string; // contexto para traducir mejor términos técnicos
 
@@ -161,6 +162,8 @@ export interface ElectronAPI {
   getNotesFolderPath: () => Promise<string>;
   exportNoteMarkdown: (note: Note) => Promise<{ success: boolean }>;
   writeClipboard: (text: string) => Promise<boolean>;
+  /** Abre el panel de Sonido de Windows en la pestaña de Reproducción o de Grabación */
+  openSoundPanel?: (tab: 'playback' | 'recording') => Promise<boolean>;
   onAlwaysOnTopChanged: (callback: (val: boolean) => void) => void;
   getDesktopSources?: () => Promise<Array<{ id: string; name: string }>>;
 

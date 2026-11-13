@@ -6,6 +6,8 @@ export interface AudioDeviceInfo {
   id: string;
   label: string;
   kind: 'audioinput' | 'audiooutput';
+  /** Dispositivos del mismo aparato físico/virtual comparten groupId */
+  groupId?: string;
 }
 
 /**
@@ -33,13 +35,15 @@ export async function getAudioDevices(): Promise<{ inputs: AudioDeviceInfo[]; ou
         inputs.push({
           id: d.deviceId,
           label: d.label || `Micrófono ${inputs.length + 1}`,
-          kind: 'audioinput'
+          kind: 'audioinput',
+          groupId: d.groupId
         });
       } else if (d.kind === 'audiooutput') {
         outputs.push({
           id: d.deviceId,
           label: d.label || `Altavoz / Salida ${outputs.length + 1}`,
-          kind: 'audiooutput'
+          kind: 'audiooutput',
+          groupId: d.groupId
         });
       }
     });
