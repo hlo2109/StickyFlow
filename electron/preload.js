@@ -27,6 +27,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Independent Windows (Configuración y Dictado/Reunión)
   openSettingsWindow: () => ipcRenderer.invoke('window:open-settings'),
   openNotesList: () => ipcRenderer.invoke('window:open-notes-list'),
+  syncStatus: () => ipcRenderer.invoke('sync:status'),
+  syncConnect: (data) => ipcRenderer.invoke('sync:connect', data),
+  syncConnectToken: (data) => ipcRenderer.invoke('sync:connect-token', data),
+  syncDisconnect: () => ipcRenderer.invoke('sync:disconnect'),
+  syncNow: () => ipcRenderer.invoke('sync:now'),
+  onSyncStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('sync:status', handler);
+    return () => ipcRenderer.removeListener('sync:status', handler);
+  },
   openNoteDraft: (note) => ipcRenderer.invoke('note:open-draft', note),
   takeNoteDraft: (noteId) => ipcRenderer.invoke('note:take-draft', noteId),
   openMeetingWindow: (noteId, view) => ipcRenderer.invoke('window:open-meeting', noteId, view),

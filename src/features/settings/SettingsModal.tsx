@@ -9,6 +9,7 @@ import { PrivacyTab } from './tabs/PrivacyTab';
 import { WindowTab } from './tabs/WindowTab';
 import { TtsTab } from './tabs/TtsTab';
 import { InterviewTab } from './tabs/InterviewTab';
+import { ServerTab } from './tabs/ServerTab';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -157,6 +158,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {currentTab === 'window' && <WindowTab {...tabProps} />}
             {currentTab === 'tts' && <TtsTab {...tabProps} />}
             {currentTab === 'interview' && <InterviewTab {...tabProps} />}
+            {currentTab === 'server' && <ServerTab />}
 
             {/* Save Button Footer */}
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">

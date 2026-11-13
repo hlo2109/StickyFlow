@@ -67,5 +67,17 @@ export function openDb(dataDir) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+// Migraciones para bases creadas por versiones anteriores
+function migrate(db) {
+  const cols = db.prepare('PRAGMA table_info(notes)').all().map((c) => c.name);
+  if (!cols.includes('seq')) {
+    // seq: contador propio del servidor (no depende de los relojes de los clientes) para sincronizar cambios
+    db.exec('ALTER TABLE notes ADD COLUMN seq INTEGER NOT NULL DEFAULT 0');
+    db.exec('UPDATE notes SET seq = rowid');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS notes_user_seq ON notes(user_id, seq)');
 }

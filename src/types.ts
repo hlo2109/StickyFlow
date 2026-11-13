@@ -191,6 +191,13 @@ export interface ElectronAPI {
   openSettingsWindow?: () => Promise<void>;
   /** Abre (o trae al frente) la lista de notas: la ventana principal */
   openNotesList?: () => Promise<boolean>;
+  /** Sincronización con un servidor propio (el token nunca llega a la interfaz) */
+  syncStatus?: () => Promise<SyncStatus>;
+  syncConnect?: (data: { serverUrl: string; email: string; password: string }) => Promise<SyncReply>;
+  syncConnectToken?: (data: { serverUrl: string; token: string }) => Promise<SyncReply>;
+  syncDisconnect?: () => Promise<SyncReply>;
+  syncNow?: () => Promise<SyncReply>;
+  onSyncStatus?: (callback: (status: SyncStatus) => void) => () => void;
   /** Abre una nota NUEVA (en blanco) en su ventana como borrador: solo se guarda cuando se escribe algo. Devuelve el id abierto */
   openNoteDraft?: (note: Note) => Promise<string | null>;
   /** La ventana de una nota nueva recoge su borrador */
@@ -237,3 +244,16 @@ declare global {
   }
 }
 
+
+/** Estado de la sincronización con el servidor propio */
+export interface SyncStatus {
+  configured: boolean;
+  serverUrl: string;
+  email: string;
+  deviceName: string;
+  lastSyncAt: string;
+  /** idle = al día · syncing = sincronizando · offline = sin conexión · auth = hay que volver a conectar · error */
+  phase: 'idle' | 'syncing' | 'offline' | 'auth' | 'error';
+  error: string;
+}
+export type SyncReply = { ok: true; status: SyncStatus } | { ok: false; error: string };

@@ -15,5 +15,8 @@ const stop = async () => {
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
 
+const userCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+app.log.info(`Datos en ${config.dataDir} · usuarios existentes: ${userCount} (si tras cada deploy vuelve a 0, el volumen de /data no está montado)`);
+
 await app.listen({ port: config.port, host: config.host });
 app.log.info(`StickyFlow Server en ${config.publicUrl} · registro: ${config.signupMode} · SMTP: ${config.smtp ? 'sí' : 'no'}`);

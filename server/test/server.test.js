@@ -194,7 +194,14 @@ test('notas: crear, listar por fecha, conflicto, borrado lógico y aislamiento e
   assert.equal((await call('PUT', '/api/notes/n1', { token: A, body: { ...n1, title: 'Compras 2', updatedAt: '2026-06-01T00:00:00.000Z' } })).body.title, 'Compras 2');
 
   assert.equal((await call('GET', '/api/notes', { token: A })).body.notes.length, 1);
-  assert.equal((await call('GET', '/api/notes?since=2026-07-01T00:00:00Z', { token: A })).body.notes.length, 0);
+  const first = (await call('GET', '/api/notes', { token: A })).body;
+  assert.ok(first.cursor > 0);
+  assert.equal((await call('GET', `/api/notes?since=${first.cursor}`, { token: A })).body.notes.length, 0, 'sin cambios desde el cursor');
+  // una nota con fecha MUY antigua (dispositivo con reloj atrasado / editada sin conexión) igual aparece tras el cursor
+  await call('PUT', '/api/notes/old', { token: A, body: { title: 'vieja', content: '<p>x</p>', markdownContent: 'x', updatedAt: '2001-01-01T00:00:00.000Z' } });
+  const later = (await call('GET', `/api/notes?since=${first.cursor}`, { token: A })).body.notes;
+  assert.deepEqual(later.map((n) => n.id), ['old']);
+  await call('DELETE', '/api/notes/old', { token: A });
   // el otro usuario no ve nada ni puede tocarla
   assert.equal((await call('GET', '/api/notes', { token: B })).body.notes.length, 0);
   assert.equal((await call('DELETE', '/api/notes/n1', { token: B })).status, 404);
@@ -202,8 +209,9 @@ test('notas: crear, listar por fecha, conflicto, borrado lógico y aislamiento e
   // borrar: queda como tombstone para que otros dispositivos lo sepan
   assert.equal((await call('DELETE', '/api/notes/n1', { token: A })).status, 200);
   const after = (await call('GET', '/api/notes', { token: A })).body.notes;
-  assert.equal(after.length, 1);
-  assert.ok(after[0].deletedAt);
+  const gone = after.filter((n) => n.id === 'n1');
+  assert.equal(gone.length, 1);
+  assert.ok(gone[0].deletedAt);
   assert.equal((await call('DELETE', '/api/notes/n1', { token: A })).status, 404);
 
   // validaciones
@@ -211,6 +219,60 @@ test('notas: crear, listar por fecha, conflicto, borrado lógico y aislamiento e
   assert.equal((await call('PUT', '/api/notes/bad id', { token: A, body: {} })).status, 400);
   assert.equal((await call('PUT', '/api/notes/n2', { token: A, body: { title: 'x'.repeat(501) } })).status, 413);
   assert.equal((await call('PUT', '/api/notes/n3', { token: A, body: { title: 'ok', color: 'rojo-raro' } })).body.color, 'yellow');
+});
+
+test('tokens personales: crear, usar, listar, revocar y aislamiento entre usuarios', async () => {
+  const { call } = await make();
+  const admin = await reg(call, 'admin@test.com');
+  const A = admin.body.token;
+  const inv = await call('POST', '/api/invites', { token: A, body: {} });
+  const other = await reg(call, 'amigo@test.com', { inviteToken: tokenFromLink(inv.body.url) });
+  const B = other.body.token;
+
+  assert.equal((await call('POST', '/api/sessions', { token: A, body: {} })).status, 400, 'pide nombre');
+  const tk = await call('POST', '/api/sessions', { token: A, body: { name: 'Mi PC' } });
+  assert.equal(tk.status, 201);
+  assert.ok(tk.body.token.length > 30);
+  // el token creado funciona y pertenece a su dueño
+  assert.equal((await call('GET', '/api/auth/me', { token: tk.body.token })).body.user.email, 'admin@test.com');
+  await call('PUT', '/api/notes/n1', { token: tk.body.token, body: { title: 'privada', content: '<p>x</p>', markdownContent: 'x' } });
+  assert.equal((await call('GET', '/api/notes', { token: A })).body.notes.length, 1);
+
+  // lista: sin valores de token, con el nombre
+  const list = (await call('GET', '/api/sessions', { token: A })).body.sessions;
+  assert.ok(list.some((s) => s.device === 'Mi PC'));
+  assert.ok(list.every((s) => !('token' in s) && !('tokenHash' in s)));
+  assert.ok(list.some((s) => s.current));
+
+  // el otro usuario NO ve ni toca los tokens ni las notas de A, ni siquiera siendo A administrador
+  assert.equal((await call('GET', '/api/sessions', { token: B })).body.sessions.every((s) => s.device !== 'Mi PC'), true);
+  assert.equal((await call('DELETE', `/api/sessions/${tk.body.id}`, { token: B })).status, 404);
+  assert.equal((await call('GET', '/api/notes', { token: B })).body.notes.length, 0);
+  assert.equal((await call('GET', '/api/notes', { token: tk.body.token })).body.notes.length, 1);
+
+  // revocar: el token deja de servir
+  assert.equal((await call('DELETE', `/api/sessions/${tk.body.id}`, { token: A })).status, 200);
+  assert.equal((await call('GET', '/api/auth/me', { token: tk.body.token })).status, 401);
+});
+
+test('migración: una base antigua (sin seq) conserva las notas y se pueden sincronizar', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-mig-'));
+  const old = new DatabaseSync(path.join(dir, 'stickyflow.db'));
+  old.exec(`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, verified_at TEXT, created_at TEXT NOT NULL);
+    CREATE TABLE notes (user_id TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '', markdown TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT 'yellow', pinned INTEGER NOT NULL DEFAULT 0, tags TEXT NOT NULL DEFAULT '[]', bitacora TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, PRIMARY KEY (user_id, id));
+    INSERT INTO users VALUES ('u1','a@b.co','x',1,1,'2026-01-01','2026-01-01');
+    INSERT INTO notes (user_id,id,title,created_at,updated_at) VALUES ('u1','a','Vieja A','2026-01-01','2026-01-01'),('u1','b','Vieja B','2026-01-02','2026-01-02');`);
+  old.close();
+  const db = openDb(dir);
+  const rows = db.prepare('SELECT id, seq FROM notes ORDER BY seq').all();
+  assert.deepEqual(rows.map((r) => r.id), ['a', 'b']);
+  assert.ok(rows.every((r) => r.seq > 0));
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('JSON: cuerpo vacío con Content-Type se acepta y el JSON roto da 400', async () => {

@@ -110,6 +110,8 @@ function writeSettingsFile(filePath, settings) {
 
 module.exports = {
   SECRET_FIELDS,
+  encryptValue,
+  decryptValue,
   decryptSettings,
   encryptSettings,
   stripSecrets,

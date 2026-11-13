@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Cloud, CloudOff, LogOut, Moon, Pin, PinOff, Plus, Search, Settings, StickyNote, Sun, Trash2 } from 'lucide-react';
+import { ArrowLeft, Cloud, CloudOff, LogOut, MonitorSmartphone, Moon, Pin, PinOff, Plus, Search, Settings, StickyNote, Sun, Trash2 } from 'lucide-react';
 import { api, ApiError } from './api.js';
 import NoteEditor from './NoteEditor.jsx';
 import Admin from './Admin.jsx';
+import Account from './Account.jsx';
 import { COLORS, colorOf } from './colors.js';
 
 const POLL_MS = 10000;
 const SAVE_DELAY = 700;
-const CLOCK_SKEW_MS = 10 * 60 * 1000; // el cursor de cambios retrocede 10 min: tolera relojes distintos entre dispositivos
 
 const isBlank = (n) => !(n.title || '').trim() && !(n.markdownContent || '').trim() && !(n.content || '').replace(/<[^>]*>/g, '').trim();
 const sortNotes = (list) => [...list].sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || (b.updatedAt || '').localeCompare(a.updatedAt || ''));
@@ -28,7 +28,7 @@ export default function NotesApp({ user, onLogout }) {
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [view, setView] = useState('notes'); // notes | admin
+  const [view, setView] = useState('notes'); // notes | admin | account
   const [status, setStatus] = useState('saved'); // saved | saving | offline
   const [dark, setDark] = useState(() => {
     const t = localStorage.getItem('sf_theme');
@@ -39,7 +39,7 @@ export default function NotesApp({ user, onLogout }) {
   const timers = useRef({});
   const dirty = useRef(new Set());
   const synced = useRef(new Set()); // ids que ya existen en el servidor
-  const cursor = useRef('');
+  const cursor = useRef(0); // contador del servidor: no depende de relojes
   notesRef.current = notes;
 
   useEffect(() => {
@@ -47,13 +47,8 @@ export default function NotesApp({ user, onLogout }) {
     localStorage.setItem('sf_theme', dark ? 'dark' : 'light');
   }, [dark]);
 
-  const advanceCursor = (list) => {
-    for (const n of list) if ((n.updatedAt || '') > cursor.current) cursor.current = n.updatedAt;
-  };
-
   // Mezcla lo que llega del servidor con lo local (lo que se está editando no se pisa)
   const merge = useCallback((remote) => {
-    advanceCursor(remote);
     setNotes((prev) => {
       const map = new Map(prev.map((n) => [n.id, n]));
       for (const r of remote) {
@@ -72,8 +67,8 @@ export default function NotesApp({ user, onLogout }) {
 
   const pull = useCallback(async (initial = false) => {
     try {
-      const since = initial || !cursor.current ? '' : new Date(Date.parse(cursor.current) - CLOCK_SKEW_MS).toISOString();
-      const { notes: remote } = await api('/notes' + (since ? '?since=' + encodeURIComponent(since) : ''));
+      const { notes: remote, cursor: next } = await api('/notes?since=' + (initial ? 0 : cursor.current));
+      if (Number.isFinite(next)) cursor.current = next;
       merge(remote);
       setStatus((s) => (s === 'offline' ? 'saved' : s));
     } catch (e) {
@@ -171,7 +166,7 @@ export default function NotesApp({ user, onLogout }) {
   const counts = { all: notes.filter((n) => !isBlank(n)).length, pinned: notes.filter((n) => n.isPinned).length };
 
   return (
-    <div className={'shell' + (active || view === 'admin' ? ' has-detail' : '')}>
+    <div className={'shell' + (active || view !== 'notes' ? ' has-detail' : '')}>
       <aside className="sidebar">
         <header className="side-head">
           <div className="brand"><span className="brand-mark"><StickyNote size={18} /></span> StickyFlow</div>
@@ -180,6 +175,7 @@ export default function NotesApp({ user, onLogout }) {
               {status === 'offline' ? <CloudOff size={16} /> : <Cloud size={16} />}
             </span>
             <button className="icon-btn" onClick={() => setDark(!dark)} title="Cambiar tema">{dark ? <Sun size={17} /> : <Moon size={17} />}</button>
+            <button className={'icon-btn' + (view === 'account' ? ' on' : '')} onClick={() => setView(view === 'account' ? 'notes' : 'account')} title="Mi cuenta y dispositivos"><MonitorSmartphone size={17} /></button>
             {user.isAdmin && <button className={'icon-btn' + (view === 'admin' ? ' on' : '')} onClick={() => setView(view === 'admin' ? 'notes' : 'admin')} title="Administrar"><Settings size={17} /></button>}
             <button className="icon-btn" onClick={onLogout} title={`Salir (${user.email})`}><LogOut size={17} /></button>
           </div>
@@ -221,6 +217,8 @@ export default function NotesApp({ user, onLogout }) {
       <main className="detail">
         {view === 'admin' ? (
           <Admin me={user} onBack={() => setView('notes')} />
+        ) : view === 'account' ? (
+          <Account me={user} onBack={() => setView('notes')} />
         ) : active ? (
           <>
             <div className="detail-bar">

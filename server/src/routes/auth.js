@@ -134,6 +134,35 @@ export async function authRoutes(app, { config, db, mailer }) {
     return { ok: true };
   });
 
+  // ---- Dispositivos y tokens personales (cada usuario gestiona SOLO los suyos) ----
+  const TOKEN_DAYS = 365;
+  app.get('/api/sessions', { preHandler: app.authenticate }, async (req) => ({
+    sessions: db
+      .prepare('SELECT id, device, created_at, expires_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC')
+      .all(req.user.id)
+      .map((x) => ({ id: x.id, device: x.device || 'Sin nombre', createdAt: x.created_at, expiresAt: x.expires_at, current: x.id === req.user.sessionId })),
+  }));
+
+  // Crea un token para conectar una app/dispositivo. El valor se muestra UNA sola vez (se guarda su hash).
+  app.post('/api/sessions', { preHandler: app.authenticate }, async (req, reply) => {
+    const name = String(req.body?.name || '').trim().slice(0, 80);
+    if (!name) return reply.code(400).send({ error: 'Ponle un nombre al token (por ejemplo: "Mi PC")' });
+    const count = db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ?').get(req.user.id).n;
+    if (count >= 50) return reply.code(400).send({ error: 'Demasiados dispositivos: revoca alguno' });
+    const token = newToken();
+    const id = newId();
+    db.prepare('INSERT INTO sessions (id, user_id, token_hash, device, created_at, expires_at) VALUES (?,?,?,?,?,?)').run(
+      id, req.user.id, sha256(token), name, iso(Date.now()), iso(Date.now() + TOKEN_DAYS * DAY),
+    );
+    return reply.code(201).send({ id, token, name, expiresAt: iso(Date.now() + TOKEN_DAYS * DAY) });
+  });
+
+  app.delete('/api/sessions/:id', { preHandler: app.authenticate }, async (req, reply) => {
+    const r = db.prepare('DELETE FROM sessions WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+    if (!r.changes) return reply.code(404).send({ error: 'Dispositivo no encontrado' });
+    return { ok: true };
+  });
+
   // ---- Administración de usuarios ----
   app.get('/api/users', { preHandler: app.requireAdmin }, async () => ({
     users: db

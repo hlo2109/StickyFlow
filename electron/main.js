@@ -6,6 +6,7 @@ const secureSettings = require('./secureSettings');
 const trayModule = require('./tray');
 const shortcutsModule = require('./shortcuts');
 const shortcutLinks = require('./shortcutLinks');
+const { createSyncEngine } = require('./sync');
 
 let mainWindow = null;
 let isAlwaysOnTop = true;
@@ -1436,7 +1437,9 @@ if (!gotTheLock) {
     const startupSettings = loadSettingsDirect();
     applyTray(startupSettings);
     applyQuickAccess(startupSettings);
-    app.on('before-quit', () => trayModule.hideTray());
+    getSyncEngine().start(); // si hay un servidor conectado, empieza a sincronizar
+    app.on('browser-window-focus', () => { if (syncEngine) syncEngine.schedule(1500); });
+    app.on('before-quit', () => { trayModule.hideTray(); if (syncEngine) syncEngine.stop(); });
     app.on('will-quit', () => shortcutsModule.unregisterShortcuts());
 
     // Lanzada desde un acceso directo con --view=...: se abre directo esa vista.
@@ -1542,6 +1545,95 @@ ipcMain.handle('window:resize', (event, { width, height }) => {
   }
 });
 
+// ---- Sincronización con un servidor propio (opcional) ----
+// El token vive SOLO aquí (cifrado en sync.json); la interfaz únicamente recibe el estado.
+const getSyncStatePath = () => path.join(path.dirname(getSettingsFilePath()), 'sync.json');
+let syncEngine = null;
+
+function readNotesForSync() {
+  try {
+    const file = getDataFilePath();
+    if (!fs.existsSync(file)) return [];
+    const list = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+// Escribe las notas que llegan del servidor y avisa a TODAS las ventanas (no hay "emisor" que excluir)
+function writeNotesFromSync(notes) {
+  const sanitized = sanitizeNotesList(notes);
+  fs.writeFileSync(getDataFilePath(), JSON.stringify(sanitized, null, 2), 'utf-8');
+  cleanupOrphanedMarkdownFiles(sanitized);
+  sanitized.forEach((n) => syncNoteToMarkdown(n));
+  try {
+    fs.writeFileSync(path.join(getStorageDir(), 'stickyflow_database.json'), JSON.stringify(sanitized, null, 2), 'utf-8');
+  } catch {}
+  BrowserWindow.getAllWindows().forEach((win) => {
+    if (!win.isDestroyed()) win.webContents.send('notes:updated', sanitized);
+  });
+  if (dockWindow && !dockWindow.isDestroyed()) dockWindow.webContents.send('dock:notes-updated', sanitized);
+}
+
+function getSyncEngine() {
+  if (syncEngine) return syncEngine;
+  syncEngine = createSyncEngine({
+    readNotes: readNotesForSync,
+    writeNotes: writeNotesFromSync,
+    loadState: () => {
+      try {
+        const raw = JSON.parse(fs.readFileSync(getSyncStatePath(), 'utf-8'));
+        return { ...raw, token: secureSettings.decryptValue(raw.token || '') };
+      } catch {
+        return {};
+      }
+    },
+    saveState: (state) => {
+      try {
+        if (!state.serverUrl) {
+          if (fs.existsSync(getSyncStatePath())) fs.unlinkSync(getSyncStatePath());
+          return;
+        }
+        fs.writeFileSync(getSyncStatePath(), JSON.stringify({ ...state, token: secureSettings.encryptValue(state.token || '') }, null, 2), 'utf-8');
+      } catch (e) {
+        console.error('Error guardando el estado de sincronización:', e);
+      }
+    },
+    onStatus: (st) => {
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) win.webContents.send('sync:status', st);
+      });
+    },
+  });
+  return syncEngine;
+}
+
+const syncReply = async (fn) => {
+  try {
+    return { ok: true, status: await fn() };
+  } catch (e) {
+    return { ok: false, error: e.message || 'No se pudo completar la acción' };
+  }
+};
+ipcMain.handle('sync:status', () => getSyncEngine().status());
+ipcMain.handle('sync:connect', (_e, { serverUrl, email, password } = {}) =>
+  syncReply(async () => {
+    const engine = getSyncEngine();
+    const st = await engine.connectWithPassword({ serverUrl, email, password });
+    engine.start();
+    return st;
+  }));
+ipcMain.handle('sync:connect-token', (_e, { serverUrl, token } = {}) =>
+  syncReply(async () => {
+    const engine = getSyncEngine();
+    const st = await engine.connectWithToken({ serverUrl, token });
+    engine.start();
+    return st;
+  }));
+ipcMain.handle('sync:disconnect', () => syncReply(() => getSyncEngine().disconnect()));
+ipcMain.handle('sync:now', () => syncReply(() => getSyncEngine().syncNow()));
+
 ipcMain.handle('notes:load', () => {
   try {
     const filePath = getDataFilePath();
@@ -1608,6 +1700,7 @@ ipcMain.handle('notes:save', (_event, notes) => {
     if (dockWindow && !dockWindow.isDestroyed()) {
       dockWindow.webContents.send('dock:notes-updated', sanitizedNotes);
     }
+    if (syncEngine) syncEngine.schedule();
     return { success: true };
   } catch (err) {
     console.error('Error saving notes:', err);
