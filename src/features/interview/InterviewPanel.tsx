@@ -19,6 +19,7 @@ import { getAudioDevices, AudioDeviceInfo } from '../../utils/audioService';
 import { useInterviewSession } from './useInterviewSession';
 import { isUsableVirtualSink, InterviewLine } from './session';
 import { languageName } from './languages';
+import { isAiReady } from '../ai/status';
 
 interface InterviewPanelProps {
   settings: AppSettings;
@@ -153,10 +154,7 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
   };
 
   const sttReady = Boolean(settings.deepgramApiKey?.trim() || settings.hfApiKey?.trim());
-  const translateReady =
-    settings.activeAiProvider === 'claude'
-      ? Boolean(settings.claudeApiKey?.trim())
-      : Boolean(settings.hfApiKey?.trim() || settings.claudeApiKey?.trim());
+  const translateReady = isAiReady(settings);
   const voiceReady = Boolean(settings.elevenLabsApiKey?.trim() && settings.elevenLabsVoiceId?.trim());
   const sinkReady = isUsableVirtualSink(outputId);
   const canStart = sttReady && translateReady;

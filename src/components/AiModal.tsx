@@ -19,7 +19,7 @@ import {
   Search
 } from 'lucide-react';
 import { Note, AppSettings } from '../types';
-import { executeAiTask, AiRequestOptions } from '../features/ai';
+import { executeAiTask, AiRequestOptions, isAiReady, activeProviderLabel } from '../features/ai';
 
 interface AiModalProps {
   isOpen: boolean;
@@ -65,9 +65,7 @@ export const AiModal: React.FC<AiModalProps> = ({
 
   if (!isOpen) return null;
 
-  const hasApiKey =
-    (settings.activeAiProvider === 'claude' && settings.claudeApiKey?.trim()) ||
-    (settings.activeAiProvider !== 'claude' && settings.hfApiKey?.trim());
+  const hasApiKey = isAiReady(settings);
 
   const handleAction = async (action: AiRequestOptions['action'], label: string, inputOverride?: string) => {
     setLoading(true);
@@ -133,7 +131,7 @@ export const AiModal: React.FC<AiModalProps> = ({
             <Sparkles size={18} className="text-yellow-300" />
             <div>
               <h3 className="font-semibold text-sm">
-                Asistente de IA ({settings.activeAiProvider === 'claude' ? 'Claude' : 'HuggingFace GPT-OSS'})
+                Asistente de IA ({activeProviderLabel(settings)})
               </h3>
               <p className="text-[10px] text-purple-200 opacity-90 flex items-center gap-1">
                 <ShieldCheck size={11} className="text-emerald-300" />
@@ -363,7 +361,7 @@ export const AiModal: React.FC<AiModalProps> = ({
           {loading && (
             <div className="flex flex-col items-center justify-center py-8 text-slate-500 gap-2">
               <Loader2 size={24} className="animate-spin text-purple-600" />
-              <span className="text-xs">Procesando de forma segura con {settings.activeAiProvider === 'claude' ? 'Claude' : settings.hfModel}...</span>
+              <span className="text-xs">Procesando de forma segura con {activeProviderLabel(settings)}...</span>
             </div>
           )}
 

@@ -209,6 +209,8 @@ Para utilizar las funciones de Inteligencia Artificial:
      - Endpoint por defecto: `https://router.huggingface.co/v1`
      - Modelo por defecto: `Qwen/Qwen2.5-72B-Instruct`
      - Pega tu API Key de Hugging Face (`hf_...`).
+   - **Otros proveedores (DeepSeek, OpenAI, Groq, Gemini, OpenRouter, Ollama…):** pulsa **Añadir**, elige una plantilla (se rellenan la URL y el modelo) y pega tu clave. Sirve cualquier servicio con API compatible con OpenAI.
+   - Cada proveedor tiene un botón **Probar conexión** que comprueba clave, modelo y red antes de guardar.
    - **Anthropic Claude (Opcional):**
      - Modelo por defecto: `claude-sonnet-5-5` (los modelos retirados se reemplazan solos)
      - Pega tu clave de Anthropic (`sk-ant-...`).
@@ -253,7 +255,7 @@ electron/            Proceso principal (ventanas, archivos, respaldos)
 src/
   components/        Pantallas y piezas de interfaz
   features/
-    ai/              Capa de IA: proveedores (Claude, Hugging Face), prompts, privacidad, radar
+    ai/              Capa de IA: proveedores (Claude, Hugging Face, compatibles con OpenAI), prompts, privacidad, radar
     meeting/         Reuniones: captura en dos pistas con detección de voz y transcripción
     interview/       Modo Entrevista: traducción en vivo, subtítulos y tu voz clonada
     settings/        Ajustes: un archivo por pestaña

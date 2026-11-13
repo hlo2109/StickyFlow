@@ -48,6 +48,10 @@ function mapSecrets(settings, fn) {
   for (const field of SECRET_FIELDS) {
     if (field in out) out[field] = fn(out[field]);
   }
+  // Proveedores de IA personalizados: cada uno lleva su propia clave
+  if (Array.isArray(out.customProviders)) {
+    out.customProviders = out.customProviders.map((p) => ({ ...p, apiKey: fn(p && p.apiKey) }));
+  }
   return out;
 }
 
@@ -74,6 +78,16 @@ function mergeKeepingSecrets(current, incoming) {
   const merged = { ...current, ...incoming };
   for (const field of SECRET_FIELDS) {
     merged[field] = (current || {})[field] || '';
+  }
+  // Proveedores personalizados: se toma la lista del respaldo pero con las claves actuales (por id)
+  const currentProviders = Array.isArray((current || {}).customProviders) ? current.customProviders : [];
+  if (Array.isArray((incoming || {}).customProviders)) {
+    merged.customProviders = incoming.customProviders.map((p) => ({
+      ...p,
+      apiKey: (currentProviders.find((c) => c.id === p.id) || {}).apiKey || ''
+    }));
+  } else {
+    merged.customProviders = currentProviders;
   }
   return merged;
 }

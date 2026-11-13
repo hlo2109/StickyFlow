@@ -32,6 +32,18 @@ export interface MeetingDoubt {
 export type DbMode = 'local' | 'remote';
 export type RemoteDbProvider = 'rest' | 'supabase' | 'cloudflare_d1' | 'custom';
 
+/** Proveedor de IA con formato OpenAI (DeepSeek, OpenAI, Groq, Gemini, Ollama, OpenRouter...). */
+export interface CustomAiProvider {
+  id: string;
+  name: string;
+  /** URL base, p. ej. https://api.deepseek.com  (se le añade /chat/completions) */
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  /** Modelo más rápido/barato para tareas frecuentes (radar, traducción en vivo). Opcional */
+  fastModel?: string;
+}
+
 export interface AppSettings {
   // Hugging Face AI
   hfEndpoint: string;
@@ -41,7 +53,9 @@ export interface AppSettings {
   // Claude AI
   claudeApiKey: string;
   claudeModel: string;
-  activeAiProvider: 'huggingface' | 'claude';
+  /** 'huggingface' | 'claude' | id de un proveedor personalizado */
+  activeAiProvider: string;
+  customProviders?: CustomAiProvider[];
 
   // Cloudflare RAG (Vectorize / Workers AI / Knowledge base)
   enableCloudflareRag: boolean;

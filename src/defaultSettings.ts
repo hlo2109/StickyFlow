@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   claudeApiKey: '',
   claudeModel: CLAUDE_DEFAULT_MODEL,
   activeAiProvider: 'huggingface',
+  customProviders: [],
   enableCloudflareRag: false,
   cloudflareAccountId: '',
   cloudflareApiToken: '',
