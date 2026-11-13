@@ -960,15 +960,20 @@ const ensureNotesDir = () => {
 };
 
 // Sync individual note to markdown file for external tools (e.g. Claude)
+// Nombre del .md de una nota: título legible + final del id
+function noteMarkdownFileName(note) {
+  const safeTitle = (note.title || 'nota_sin_titulo')
+    .replace(/[/\\?%*:|"<>]/g, '_')
+    .replace(/\.\./g, '_')
+    .substring(0, 50);
+  const suffix = note.id ? note.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(-8) : Date.now().toString().slice(-6);
+  return `${safeTitle || 'nota'}_${suffix}.md`;
+}
+
 function syncNoteToMarkdown(note) {
   try {
     const dir = ensureNotesDir();
-    const safeTitle = (note.title || 'nota_sin_titulo')
-      .replace(/[/\\?%*:|"<>]/g, '_')
-      .replace(/\.\./g, '_')
-      .substring(0, 50);
-    const suffix = note.id ? note.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(-8) : Date.now().toString().slice(-6);
-    const fileName = `${safeTitle || 'nota'}_${suffix}.md`;
+    const fileName = noteMarkdownFileName(note);
     const filePath = path.join(dir, fileName);
     if (!path.resolve(filePath).startsWith(path.resolve(dir))) {
       console.warn('Blocked path traversal attempt in syncNoteToMarkdown');
@@ -1051,6 +1056,8 @@ function cleanupOrphanedMarkdownFiles(validNotes) {
     if (!fs.existsSync(dir)) return 0;
 
     const validIdSet = new Set((validNotes || []).map(n => String(n.id)));
+    // Nombre vigente de cada nota: si cambió el título, el archivo con el nombre viejo sobra (era lo que llenaba la carpeta)
+    const expectedFile = new Map((validNotes || []).map(n => [String(n.id), noteMarkdownFileName(n)]));
     const validSuffixSet = new Set((validNotes || []).map(n => {
       return n.id ? n.id.replace(/[^a-zA-Z0-9_-]/g, '').slice(-8) : '';
     }).filter(Boolean));
@@ -1075,7 +1082,7 @@ function cleanupOrphanedMarkdownFiles(validNotes) {
 
         let isOrphan = false;
         if (fileNoteId) {
-          isOrphan = !validIdSet.has(fileNoteId);
+          isOrphan = !validIdSet.has(fileNoteId) || expectedFile.get(fileNoteId) !== file;
         } else {
           const matchSuffix = file.match(/_([a-zA-Z0-9_-]+)\.md$/);
           if (matchSuffix && matchSuffix[1]) {
