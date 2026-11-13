@@ -175,6 +175,7 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
       {view === 'interview' ? (
         <InterviewPanel
           settings={settings}
+          notes={notes}
           onBack={() => setView('meeting')}
           onOpenVoiceNote={() => setView('voicenote')}
           onClose={handleClose}
@@ -191,6 +192,7 @@ export const MeetingWindowView: React.FC<MeetingWindowViewProps> = ({ noteId }) 
           isOpen={true}
           onClose={handleClose}
           activeNote={activeNote}
+          notes={notes}
           settings={settings}
           onInsertMeetingNote={handleInsertMeetingNote}
           onAddBitacoraLog={handleAddBitacoraLog}

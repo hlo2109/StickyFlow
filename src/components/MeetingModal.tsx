@@ -19,18 +19,25 @@ import {
   Plus,
   CheckSquare,
   Mic,
-  Languages
+  Pencil
 } from 'lucide-react';
 import { Note, AppSettings, MeetingDoubt } from '../types';
 import { getAudioDevices, AudioDeviceInfo } from '../utils/audioService';
 import { meetingCapture, MeetingSegment } from '../features/meeting/capture/meetingCapture';
 import { transcribeAudio } from '../features/meeting/stt/whisper';
 import { executeAiTask, analyzeMeetingDoubtRadar } from '../features/ai';
+import { AssistantPanel } from '../features/assistant/AssistantPanel';
+import { ViewNav } from '../features/meeting/ui/ViewNav';
+import { ConversationFeed } from '../features/meeting/ui/ConversationFeed';
+import { DoubtsRadar } from '../features/meeting/ui/DoubtsRadar';
+import { normalizeMeetingTranscript } from '../features/analysis/analyze';
 
 interface MeetingModalProps {
   isOpen: boolean;
   onClose: () => void;
   activeNote: Note;
+  /** Todas las notas del usuario (pueden usarse como contexto del Asistente) */
+  notes?: Note[];
   settings: AppSettings;
   onInsertMeetingNote: (title: string, markdown: string, asNewNote: boolean) => void;
   onAddBitacoraLog: (action: any, summary: string) => void;
@@ -44,6 +51,7 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   isOpen,
   onClose,
   activeNote,
+  notes = [],
   settings,
   onInsertMeetingNote,
   onAddBitacoraLog,
@@ -169,6 +177,23 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     }
   }, [transcriptText]);
 
+  // Vista de edición manual del texto, y «Conectando…» mientras Windows abre el audio.
+  const [editTranscript, setEditTranscript] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+
+  // «Iniciar» instantáneo: Windows tarda ~1 s en abrir el audio del sistema, así que se deja listo al abrir la
+  // pantalla (y al cambiar de micrófono o terminar una grabación). Se libera al cerrar.
+  useEffect(() => {
+    if (!isOpen || isRecording || isStarting) return;
+    void meetingCapture.prepare({ micDeviceId: selectedMicId || undefined });
+  }, [isOpen, isRecording, isStarting, selectedMicId]);
+
+  useEffect(() => () => meetingCapture.release(), []);
+
+  /** La conversación para el análisis: «[Tú]» pasa a «Yo:», y se añaden tus notas. */
+  const getAnalysisTranscript = () =>
+    normalizeMeetingTranscript(transcriptText) + (manualNotes.trim() ? `\n\nNotas escritas por mí durante la reunión:\n${manualNotes.trim()}` : '');
+
   if (!isOpen) return null;
 
   const formatTimer = (totalSeconds: number) => {
@@ -272,7 +297,9 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
     );
 
     const onChunkCallback = mode === 'live' ? handleAudioSlice : undefined;
+    setIsStarting(true);
     const res = await meetingCapture.startCapture({ micDeviceId: selectedMicId, onSegment: onChunkCallback });
+    setIsStarting(false);
     if (!res.success) {
       setErrorMessage(res.error || 'No se pudo iniciar la captura de audio.');
       setStatusMessage('');
@@ -502,66 +529,79 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-white dark:bg-slate-900 flex flex-col w-full h-full overflow-hidden text-slate-800 dark:text-slate-100 select-none animate-in fade-in">
-      
-      {/* Top Navigation & Action Header (Draggable Window Region) */}
-      <div className="px-4 py-2.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shadow-sm shrink-0 window-drag-region cursor-move select-none">
-        <div className="flex items-center gap-3">
+    <div className="fixed inset-0 z-50 bg-slate-900 text-slate-100 flex flex-col w-full h-full overflow-hidden select-none animate-in fade-in">
+      {/* Cabecera */}
+      <header className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 shrink-0 window-drag-region cursor-move">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="p-1.5 bg-indigo-600/30 text-indigo-400 rounded-lg shrink-0">
             <Headphones size={18} />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">Modo Reunión & Radar de Dudas</span>
+              <span className="font-semibold text-sm">Reunión</span>
               {isRecording ? (
-                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold flex items-center gap-1.5 animate-pulse window-no-drag">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                  {recordingMode === 'live' ? 'EN VIVO (Radar activo)' : 'GRABANDO (Modo Normal)'} ({formatTimer(elapsedSeconds)})
+                <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  {recordingMode === 'live' ? 'EN VIVO' : 'GRABANDO'} {formatTimer(elapsedSeconds)}
                 </span>
               ) : (
-                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-medium">
-                  Listo para iniciar
-                </span>
+                <span className="px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 text-[10px] font-medium">Lista</span>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 leading-tight">
-              Escucha continua del audio del sistema y micrófono • Arrastra aquí para mover ventana
-            </p>
+            <p className="text-[11px] text-slate-500 leading-tight truncate">Transcripción en vivo, radar de dudas y análisis con tu contexto</p>
           </div>
         </div>
 
-        {/* Action Buttons in Header */}
-        <div className="flex items-center gap-2 window-no-drag">
-          {!isRecording ? (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleStartMeeting('live')}
-                title="Transcribe cada frase en cuanto termina y evalúa dudas dinámicamente con IA"
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
-              >
-                <Play size={13} />
-                <span>Grabar en Vivo (Radar)</span>
-              </button>
+        {(onOpenInterview || onOpenVoiceNote) && (
+          <ViewNav
+            current="meeting"
+            onNavigate={(view) => {
+              if (isRecording) handleStopMeeting();
+              if (view === 'interview') onOpenInterview?.();
+              if (view === 'voicenote') onOpenVoiceNote?.();
+            }}
+          />
+        )}
 
+        <div className="flex items-center gap-2 window-no-drag shrink-0">
+          {!isRecording ? (
+            <>
+              <div className="flex p-0.5 rounded-lg bg-slate-800 border border-slate-700 text-[11px]" role="group" aria-label="Tipo de grabación">
+                <button
+                  type="button"
+                  onClick={() => setRecordingMode('live')}
+                  title="Transcribe cada frase en cuanto termina y vigila las dudas con IA"
+                  className={`px-2.5 py-1 rounded-md cursor-pointer ${recordingMode === 'live' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  En vivo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecordingMode('normal')}
+                  title="Graba la reunión completa y, al detener, la transcribe toda"
+                  className={`px-2.5 py-1 rounded-md cursor-pointer ${recordingMode === 'normal' ? 'bg-slate-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  Completa
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => handleStartMeeting('normal')}
-                title="Graba la reunión completa en segundo plano; al presionar detener, transcribe todo el audio"
-                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
+                onClick={() => handleStartMeeting(recordingMode)}
+                disabled={isStarting}
+                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
-                <Mic size={13} />
-                <span>Grabar Normal</span>
+                {isStarting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                {isStarting ? 'Conectando…' : 'Iniciar'}
               </button>
-            </div>
+            </>
           ) : (
             <button
               type="button"
               onClick={handleStopMeeting}
-              className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm animate-pulse cursor-pointer"
+              className="px-4 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Square size={13} />
-              <span>Detener Reunión</span>
+              Detener
             </button>
           )}
 
@@ -571,94 +611,60 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
             className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-40 cursor-pointer"
           >
             {isAnalyzing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-            <span>Generar Minuta con IA</span>
+            Generar minuta
           </button>
-
-          {onOpenVoiceNote && (
-            <button
-              type="button"
-              onClick={() => {
-                if (isRecording) handleStopMeeting();
-                onOpenVoiceNote();
-              }}
-              title="Nota de voz: manda un audio con tu voz clonada por WhatsApp y más"
-              className="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Mic size={14} />
-              <span>Nota de voz</span>
-            </button>
-          )}
-
-          {onOpenInterview && (
-            <button
-              type="button"
-              onClick={() => {
-                if (isRecording) handleStopMeeting();
-                onOpenInterview();
-              }}
-              title="Modo Entrevista: traducción en vivo con tu voz"
-              className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/40 text-sky-300 text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              <Languages size={14} />
-              <span>Entrevista</span>
-            </button>
-          )}
 
           <button
             onClick={() => setShowDeviceSettings(!showDeviceSettings)}
-            title="Ajustar micrófonos y audio"
-            className={`p-1.5 rounded-lg border text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+            title="Elegir micrófono"
+            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
               showDeviceSettings ? 'bg-slate-700 text-white border-slate-600' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
           >
             <Sliders size={14} />
           </button>
 
-          <div className="h-4 w-px bg-slate-700 mx-0.5"></div>
+          <div className="h-4 w-px bg-slate-700 mx-0.5" />
 
-          {/* Toggle Always On Top Pin */}
           <button
             type="button"
             onClick={handleTogglePin}
-            title={isPinned ? 'Desactivar siempre visible (desanclar ventana)' : 'Fijar ventana siempre visible sobre otras ventanas'}
-            className={`p-1.5 rounded-lg border text-xs flex items-center transition-colors cursor-pointer ${
-              isPinned ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
+            title={isPinned ? 'Desactivar siempre visible' : 'Fijar la ventana siempre visible'}
+            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
+              isPinned ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
             }`}
           >
             {isPinned ? <Pin size={14} className="text-amber-400" /> : <PinOff size={14} />}
           </button>
-
-          {/* Minimize Window */}
           <button
             type="button"
             onClick={() => window.electronAPI?.minimize()}
-            title="Minimizar ventana (la grabación continúa activa en segundo plano)"
+            title="Minimizar (la grabación continúa)"
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
           >
             <Minus size={14} />
           </button>
-
-          {/* Close Window */}
           <button
             onClick={handleCloseModal}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-red-600 transition-colors cursor-pointer"
-            title="Cerrar ventana de reunión"
+            title="Cerrar"
           >
             <X size={16} />
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Collapsible Audio Devices Bar */}
+      {/* Micrófono */}
       {showDeviceSettings && (
-        <div className="px-4 py-2.5 bg-slate-800/90 border-b border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs animate-in slide-in-from-top-1 shrink-0">
-          <div className="flex-1 min-w-[200px]">
-            <label className="text-[10px] text-slate-400 block mb-0.5">🎙️ Micrófono de Entrada</label>
+        <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center gap-3 text-xs shrink-0 animate-in slide-in-from-top-1">
+          <label className="flex items-center gap-2 flex-1 min-w-0">
+            <Mic size={14} className="text-slate-400 shrink-0" />
+            <span className="text-slate-400 shrink-0">Mi micrófono</span>
             <select
               disabled={isRecording}
               value={selectedMicId}
               onChange={(e) => setSelectedMicId(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-900 border border-slate-700 text-slate-200 rounded text-xs truncate disabled:opacity-50"
+              className="flex-1 min-w-0 px-2 py-1.5 bg-slate-800 border border-slate-700 text-slate-200 rounded-lg truncate disabled:opacity-50"
             >
               {inputDevices.length === 0 ? (
                 <option value="">Micrófono predeterminado</option>
@@ -670,325 +676,173 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 ))
               )}
             </select>
-          </div>
-
-          <div className="flex-1 min-w-[200px]">
-            <label className="text-[10px] text-slate-400 block mb-0.5">🔊 Audio de la Reunión (Sistema / Salida)</label>
-            <select
-              disabled={isRecording}
-              value={selectedOutputId}
-              onChange={(e) => setSelectedOutputId(e.target.value)}
-              className="w-full px-2 py-1 bg-slate-900 border border-slate-700 text-slate-200 rounded text-xs truncate disabled:opacity-50"
-            >
-              {outputDevices.length === 0 ? (
-                <option value="">Loopback del Sistema (predeterminado)</option>
-              ) : (
-                outputDevices.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.label}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+          </label>
+          <span className="text-slate-500 hidden md:block">El audio de los demás se captura del sistema.</span>
         </div>
       )}
 
-      {/* Sub-bar: Real-time Live Status Indicators & Flash Banners */}
-      <div className="px-4 py-1.5 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs shrink-0">
-        <div className="flex items-center gap-2">
-          <Volume2 size={13} className={isRecording ? 'text-emerald-500 animate-pulse' : 'text-slate-400'} />
-          <span className="text-slate-600 dark:text-slate-300 text-[11px] truncate font-medium">
-            {getDisplayStatus()}
-          </span>
+      {/* Estado en tiempo real */}
+      <div className="px-4 py-1.5 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Volume2 size={13} className={isRecording ? 'text-emerald-400 animate-pulse' : 'text-slate-500'} />
+          <span className="text-slate-300 text-[11px] truncate font-medium">{getDisplayStatus()}</span>
           {isChunkTranscribing && (
-            <span className="px-2 py-0.2 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 text-[10px] font-medium flex items-center gap-1 animate-pulse">
-              <Loader2 size={10} className="animate-spin" />
-              Transcribiendo bloque...
+            <span className="px-2 rounded-full bg-blue-500/15 text-blue-300 text-[10px] font-medium flex items-center gap-1 animate-pulse shrink-0">
+              <Loader2 size={10} className="animate-spin" /> Transcribiendo…
             </span>
           )}
           {isRadarScanning && (
-            <span className="px-2 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 text-[10px] font-medium flex items-center gap-1 animate-pulse">
-              <Sparkles size={10} />
-              Evaluando dudas...
+            <span className="px-2 rounded-full bg-purple-500/15 text-purple-300 text-[10px] font-medium flex items-center gap-1 animate-pulse shrink-0">
+              <Sparkles size={10} /> Evaluando dudas…
             </span>
           )}
           {isAnalyzing && (
-            <span className="px-2 py-0.2 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 text-[10px] font-medium flex items-center gap-1 animate-pulse">
-              <Loader2 size={10} className="animate-spin" />
-              Generando minuta con IA...
+            <span className="px-2 rounded-full bg-indigo-500/15 text-indigo-300 text-[10px] font-medium flex items-center gap-1 animate-pulse shrink-0">
+              <Loader2 size={10} className="animate-spin" /> Generando minuta…
             </span>
           )}
         </div>
-
-        {/* Counter badges */}
-        <div className="flex items-center gap-2.5 text-[11px] font-medium">
-          <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+        <div className="flex items-center gap-2.5 text-[11px] font-medium shrink-0">
+          <span className="flex items-center gap-1 text-amber-400">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
             {openDoubts.length} {openDoubts.length === 1 ? 'duda abierta' : 'dudas abiertas'}
           </span>
-          <span className="text-slate-300 dark:text-slate-700">•</span>
-          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span className="text-slate-700">•</span>
+          <span className="flex items-center gap-1 text-emerald-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
             {resolvedDoubts.length} {resolvedDoubts.length === 1 ? 'resuelta' : 'resueltas'}
           </span>
         </div>
       </div>
 
-      {/* Floating Notification Flash */}
       {radarNotification && (
-        <div className="px-4 py-1.5 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-emerald-500/10 border-b border-purple-200 dark:border-purple-900 text-xs text-purple-800 dark:text-purple-300 font-medium flex items-center justify-between shrink-0 animate-in fade-in">
+        <div className="px-4 py-1.5 bg-purple-500/10 border-b border-purple-500/30 text-xs text-purple-200 font-medium flex items-center justify-between shrink-0 animate-in fade-in">
           <span className="truncate">{radarNotification}</span>
-          <button onClick={() => setRadarNotification(null)} className="opacity-60 hover:opacity-100 text-xs cursor-pointer">
+          <button onClick={() => setRadarNotification(null)} className="opacity-60 hover:opacity-100 cursor-pointer">
             ✕
           </button>
         </div>
       )}
 
-      {/* Error Alert Banner */}
       {errorMessage && (
-        <div className="px-4 py-2 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 text-xs flex items-center justify-between shrink-0">
+        <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/30 text-red-300 text-xs flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <AlertCircle size={14} className="shrink-0" />
             <span>{errorMessage}</span>
           </div>
-          <button onClick={() => setErrorMessage('')} className="text-red-500 font-bold text-xs cursor-pointer">
+          <button onClick={() => setErrorMessage('')} className="text-red-400 font-bold cursor-pointer">
             ✕
           </button>
         </div>
       )}
 
-      {/* Main Full-Height Workspace: Two Spacious Panes */}
-      <div className="flex-1 p-4 grid grid-cols-1 md:grid-cols-12 gap-4 overflow-hidden min-h-0 bg-white dark:bg-slate-900">
-        
-        {/* Left Pane (Col 6): Live Stream Transcript & Fast Notes */}
-        <div className="md:col-span-6 flex flex-col gap-3 h-full overflow-hidden min-h-0">
-          
-          {/* Live Transcript Stream Box */}
-          <div className="flex-1 flex flex-col min-h-0 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs">
-            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 dark:border-slate-700/80">
-              <span className="font-semibold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <FileText size={14} className="text-indigo-500" />
-                Transcripción en Vivo de la Reunión
-              </span>
+      {/* Conversación (izquierda) + Asistente (derecha) */}
+      <main className="flex-1 flex min-h-0">
+        <section className="flex-1 min-w-0 flex flex-col min-h-0 border-r border-slate-800">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800 shrink-0">
+            <span className="font-semibold text-xs flex items-center gap-1.5">
+              <FileText size={14} className="text-indigo-400" />
+              Conversación
+            </span>
+            <div className="flex items-center gap-2">
               {transcriptText && (
-                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                <span className="text-[10px] text-emerald-300 font-medium bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
                   {transcriptText.split(/\s+/).filter(Boolean).length} palabras
                 </span>
               )}
+              <button
+                type="button"
+                onClick={() => setEditTranscript(!editTranscript)}
+                className={`px-2 py-1 rounded-md text-[11px] flex items-center gap-1 cursor-pointer ${editTranscript ? 'bg-slate-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}
+                title="Corregir el texto a mano"
+              >
+                <Pencil size={11} /> {editTranscript ? 'Listo' : 'Editar'}
+              </button>
             </div>
-
-            <textarea
-              ref={transcriptTextareaRef}
-              value={transcriptText}
-              onChange={(e) => setTranscriptText(e.target.value)}
-              placeholder="El audio de la reunión y tu micrófono se transcribirán aquí automáticamente en bloques de 10 segundos..."
-              className="flex-1 w-full bg-transparent text-xs resize-none focus:outline-none font-sans leading-relaxed text-slate-700 dark:text-slate-200 placeholder:text-slate-400"
-            />
           </div>
 
-          {/* Quick Notes / Key Points Box */}
-          <div className="h-28 flex flex-col bg-white dark:bg-slate-800/30 rounded-xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs shrink-0">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
-              ✍️ Tus Notas Rápidas y Acuerdos
-            </span>
+          <div className="flex-1 min-h-0">
+            {editTranscript ? (
+              <textarea
+                ref={transcriptTextareaRef}
+                value={transcriptText}
+                onChange={(e) => setTranscriptText(e.target.value)}
+                placeholder="La conversación se transcribe aquí…"
+                className="w-full h-full bg-slate-900 text-sm resize-none focus:outline-none p-4 leading-relaxed text-slate-200 select-text"
+              />
+            ) : (
+              <ConversationFeed text={transcriptText} isRecording={isRecording} />
+            )}
+          </div>
+
+          <div className="border-t border-slate-800 px-4 py-2.5 shrink-0">
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Tus notas y acuerdos</label>
             <textarea
               value={manualNotes}
               onChange={(e) => setManualNotes(e.target.value)}
-              placeholder="Apunta compromisos, nombres o cifras clave aquí..."
-              className="flex-1 w-full bg-transparent text-xs resize-none focus:outline-none leading-relaxed text-slate-700 dark:text-slate-200 placeholder:text-slate-400"
+              placeholder="Apunta compromisos, nombres o cifras clave…"
+              rows={2}
+              className="w-full bg-slate-800/60 border border-slate-800 rounded-lg px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed text-slate-200 placeholder:text-slate-500 select-text"
             />
           </div>
-        </div>
+        </section>
 
-        {/* Right Pane (Col 6): Autonomous Q&A Radar */}
-        <div className="md:col-span-6 flex flex-col h-full overflow-hidden min-h-0 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 p-3 shadow-2xs">
-          
-          {/* Radar Header */}
-          <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700/80 shrink-0">
-            <div className="flex items-center gap-1.5">
-              <Sparkles size={14} className="text-purple-600 dark:text-purple-400" />
-              <span className="font-semibold text-xs text-slate-800 dark:text-slate-200">
-                Radar de Dudas & Preguntas en Vivo
-              </span>
-            </div>
+        <aside className="w-[420px] shrink-0 min-h-0">
+          <AssistantPanel
+            kind="meeting"
+            settings={settings}
+            notes={notes}
+            getTranscript={getAnalysisTranscript}
+            defaultTab="radar"
+            extraTabs={[
+              {
+                id: 'radar',
+                label: 'Radar de dudas',
+                Icon: Sparkles,
+                badge: openDoubts.length || undefined,
+                content: (
+                  <DoubtsRadar
+                    doubts={doubts}
+                    isRecording={isRecording}
+                    newDoubt={newManualDoubt}
+                    onNewDoubtChange={setNewManualDoubt}
+                    onAdd={handleAddManualDoubt}
+                    onToggle={handleToggleDoubt}
+                    onDelete={handleDeleteDoubt}
+                    onCopy={handleCopyQuestion}
+                    copiedId={copiedQuestionId}
+                  />
+                )
+              }
+            ]}
+          />
+        </aside>
+      </main>
 
-            <span className="px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-medium border border-purple-200 dark:border-purple-800">
-              {isRecording ? 'Monitoreo 100% manos libres' : 'Radar listo'}
-            </span>
-          </div>
-
-          {/* Quick Manual Doubt Form */}
-          <form onSubmit={handleAddManualDoubt} className="py-2 flex items-center gap-1.5 shrink-0">
-            <input
-              type="text"
-              value={newManualDoubt}
-              onChange={(e) => setNewManualDoubt(e.target.value)}
-              placeholder="Opcional: Agregar una pregunta para que la IA la rastree..."
-              className="flex-1 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <button
-              type="submit"
-              disabled={!newManualDoubt.trim()}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-medium flex items-center gap-1 transition-all cursor-pointer"
-            >
-              <Plus size={13} />
-              <span>Añadir</span>
-            </button>
-          </form>
-
-          {/* Doubts Feed */}
-          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1 min-h-0">
-            
-            {/* Empty state */}
-            {doubts.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400 dark:text-slate-500">
-                <Sparkles size={28} className="mb-2 stroke-1 opacity-40 text-purple-500" />
-                <p className="text-xs font-medium">El radar está escuchando la conversación</p>
-                <p className="text-[11px] max-w-xs mt-1 opacity-70">
-                  En cuanto alguien plantee un tema ambiguo o surja una pregunta no resuelta, aparecerá aquí automáticamente.
-                </p>
-              </div>
-            )}
-
-            {/* Section 1: Open Doubts */}
-            {openDoubts.length > 0 && (
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                  Dudas por Resolver ({openDoubts.length}) — ¡Pregunta en la reunión!
-                </span>
-
-                {openDoubts.map((doubt) => (
-                  <div
-                    key={doubt.id}
-                    className="p-3 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/40 rounded-xl text-xs space-y-2 shadow-2xs hover:shadow-xs transition-all"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium text-slate-800 dark:text-slate-100 flex-1 leading-snug">
-                        {doubt.question}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                        {doubt.createdAt}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
-                      <button
-                        onClick={(e) => handleCopyQuestion(doubt.id, doubt.question, e)}
-                        className="p-1 px-2.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                        title="Copiar pregunta para el chat de Teams/Meet/Zoom"
-                      >
-                        {copiedQuestionId === doubt.id ? (
-                          <>
-                            <Check size={11} className="text-emerald-600" />
-                            <span>Copiada ✓</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={11} />
-                            <span>Copiar</span>
-                          </>
-                        )}
-                      </button>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleToggleDoubt(doubt.id)}
-                          className="p-1 px-2.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-1 transition-colors cursor-pointer"
-                          title="Marcar como aclarada/resuelta"
-                        >
-                          <Check size={12} />
-                          <span>Marcar Resuelta</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteDoubt(doubt.id, e)}
-                          className="p-1 text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
-                          title="Descartar duda"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Section 2: Resolved Doubts */}
-            {resolvedDoubts.length > 0 && (
-              <div className="space-y-1.5 pt-2">
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
-                  <CheckSquare size={12} />
-                  Dudas Aclaradas durante la Reunión ({resolvedDoubts.length})
-                </span>
-
-                {resolvedDoubts.map((doubt) => (
-                  <div
-                    key={doubt.id}
-                    className="p-2.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-xs space-y-1 opacity-90 hover:opacity-100 transition-opacity"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="line-through text-slate-500 dark:text-slate-400 font-medium">
-                        {doubt.question}
-                      </span>
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium shrink-0">
-                        ✓ {doubt.resolvedAt || 'Aclarada'}
-                      </span>
-                    </div>
-
-                    {doubt.resolvedAnswer && (
-                      <p className="text-[11px] text-emerald-800 dark:text-emerald-300 bg-white dark:bg-slate-900 p-1.5 rounded-lg text-xs leading-relaxed border border-emerald-100 dark:border-emerald-900/50">
-                        💡 <strong>Aclarado:</strong> {doubt.resolvedAnswer}
-                      </p>
-                    )}
-
-                    <div className="flex justify-end pt-0.5">
-                      <button
-                        onClick={() => handleToggleDoubt(doubt.id)}
-                        className="text-[10px] text-slate-400 hover:text-amber-600 underline cursor-pointer"
-                      >
-                        Reabrir duda
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-          </div>
-        </div>
-
-      </div>
-
-      {/* AI Analyzing Overlay Banner */}
       {isAnalyzing && (
-        <div className="p-4 mx-4 mb-3 text-center text-xs text-indigo-700 dark:text-indigo-300 flex items-center justify-center gap-2 bg-indigo-50 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 animate-pulse shrink-0">
-          <Loader2 size={16} className="animate-spin text-indigo-600 dark:text-indigo-400" />
-          <span className="font-medium">
-            Analizando la reunión completa, acuerdos y radar de dudas para redactar la minuta ejecutiva...
-          </span>
+        <div className="p-3 mx-4 mb-3 text-center text-xs text-indigo-200 flex items-center justify-center gap-2 bg-indigo-500/10 rounded-xl border border-indigo-500/30 animate-pulse shrink-0">
+          <Loader2 size={16} className="animate-spin text-indigo-400" />
+          <span className="font-medium">Analizando la reunión, los acuerdos y el radar de dudas para redactar la minuta…</span>
         </div>
       )}
 
-      {/* Generated Minutes Drawer */}
       {meetingSummary && !isAnalyzing && (
-        <div className="p-4 mx-4 mb-4 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-200 dark:border-indigo-800 space-y-2 shrink-0 animate-in slide-in-from-bottom-2">
+        <div className="p-4 mx-4 mb-4 bg-slate-800/60 rounded-xl border border-indigo-500/30 space-y-2 shrink-0 animate-in slide-in-from-bottom-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
               <Check size={14} />
-              Minuta Ejecutiva Generada con Éxito
+              Minuta lista
             </span>
             <button
               onClick={handleCopySummary}
-              className="p-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-medium flex items-center gap-1 shadow-2xs hover:bg-slate-50 transition-colors cursor-pointer"
+              className="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
             >
-              {copiedSummary ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
-              <span>{copiedSummary ? 'Copiado' : 'Copiar Minuta'}</span>
+              {copiedSummary ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              {copiedSummary ? 'Copiada' : 'Copiar minuta'}
             </button>
           </div>
 
-          <div className="p-3 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 text-xs whitespace-pre-wrap leading-relaxed max-h-44 overflow-y-auto select-text font-sans">
+          <div className="p-3 bg-slate-900 rounded-lg border border-slate-700 text-xs whitespace-pre-wrap leading-relaxed max-h-44 overflow-y-auto select-text">
             {meetingSummary}
           </div>
 
@@ -998,10 +852,10 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
                 onInsertMeetingNote(suggestedTitle, '\n\n---\n' + meetingSummary, false);
                 handleCloseModal();
               }}
-              className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer"
             >
               <FileText size={13} />
-              <span>Insertar en nota actual</span>
+              Insertar en la nota actual
             </button>
             <button
               onClick={() => {
@@ -1011,12 +865,11 @@ export const MeetingModal: React.FC<MeetingModalProps> = ({
               className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center gap-1 shadow-sm transition-all cursor-pointer"
             >
               <PlusCircle size={13} />
-              <span>Crear como Nueva Nota</span>
+              Crear como nueva nota
             </button>
           </div>
         </div>
       )}
-
     </div>
   );
 };

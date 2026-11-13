@@ -723,8 +723,9 @@ function openMeetingWindow(noteId, view) {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
 
-  const winWidth = 840;
-  const winHeight = 640;
+  // Más ancha: la conversación y el Asistente (análisis y contexto) van lado a lado.
+  const winWidth = Math.min(1240, screenWidth - 40);
+  const winHeight = Math.min(780, screenHeight - 60);
   // Positioned beside note windows so active notes are 100% visible and readable
   const defaultX = Math.max(20, Math.min(screenWidth - winWidth - 20, 80));
   const defaultY = Math.max(30, Math.min(screenHeight - winHeight - 30, 50));
@@ -732,8 +733,8 @@ function openMeetingWindow(noteId, view) {
   meetingWindow = new BrowserWindow({
     width: winWidth,
     height: winHeight,
-    minWidth: 600,
-    minHeight: 480,
+    minWidth: 720,
+    minHeight: 520,
     x: defaultX,
     y: defaultY,
     frame: false,

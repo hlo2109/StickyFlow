@@ -14,9 +14,10 @@ import {
   Loader2,
   Settings as SettingsIcon,
   Mic,
-  Zap
+  Zap,
+  Brain
 } from 'lucide-react';
-import { AppSettings } from '../../types';
+import { AppSettings, Note } from '../../types';
 import { useInterviewSession } from './useInterviewSession';
 import { isUsableVirtualSink, InterviewLine } from './session';
 import { languageName } from './languages';
@@ -25,9 +26,13 @@ import { AudioSetup } from './AudioSetup';
 import { useVirtualMicSetup } from './useVirtualMicSetup';
 import { meetingCapture } from '../meeting/capture/meetingCapture';
 import { fmtSeconds, speedTips, SPEED_PRESETS, SpeedPreset } from './speedTips';
+import { AssistantPanel } from '../assistant/AssistantPanel';
+import { buildInterviewTranscript } from '../analysis/analyze';
 
 interface InterviewPanelProps {
   settings: AppSettings;
+  /** Notas del usuario: pueden usarse como contexto del Asistente */
+  notes?: Note[];
   onBack: () => void;
   onOpenVoiceNote?: () => void;
   onClose: () => void;
@@ -131,10 +136,11 @@ const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (i
   );
 };
 
-export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack, onOpenVoiceNote, onClose }) => {
+export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes = [], onBack, onOpenVoiceNote, onClose }) => {
   // Dispositivos de audio (autodetectados y recordados): lógica compartida con «Nota de voz».
   const setup = useVirtualMicSetup(settings);
   const [autoSpeak, setAutoSpeak] = useState(true);
+  const [showAssistant, setShowAssistant] = useState(() => localStorage.getItem('stickyflow.interview.assistant') !== '0');
   const [speed, setSpeed] = useState<SpeedPreset>(() => {
     const saved = localStorage.getItem('stickyflow.interview.speed');
     return saved && saved in SPEED_PRESETS ? (saved as SpeedPreset) : 'normal';
@@ -242,6 +248,20 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           )}
           <button
             type="button"
+            onClick={() => {
+              const next = !showAssistant;
+              setShowAssistant(next);
+              localStorage.setItem('stickyflow.interview.assistant', next ? '1' : '0');
+            }}
+            title="Asistente: análisis de la entrevista y contexto (tu CV, proyectos)"
+            className={`px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 cursor-pointer border ${
+              showAssistant ? 'bg-violet-600/30 border-violet-500/50 text-violet-200' : 'bg-slate-800 border-transparent hover:bg-slate-700'
+            }`}
+          >
+            <Brain size={13} /> Asistente
+          </button>
+          <button
+            type="button"
             onClick={openSettings}
             title="Ajustes de entrevista"
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 cursor-pointer"
@@ -318,8 +338,9 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
         }
       />
 
-      {/* Conversación */}
-      <div ref={feedRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
+      {/* Conversación + Asistente (análisis y contexto) */}
+      <div className="flex-1 flex min-h-0">
+      <div ref={feedRef} className="flex-1 min-w-0 overflow-y-auto px-4 py-3 space-y-2.5">
         {snapshot.lines.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 text-xs gap-2 px-8">
             <Languages size={28} className="text-slate-600" />
@@ -340,6 +361,19 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
             <LineBubble key={line.id} line={line} canSpeak={snapshot.canSpeak} onSpeak={(id) => session.speak(id)} />
           ))
         )}
+      </div>
+
+      {showAssistant && (
+        <aside className="w-[400px] shrink-0 border-l border-slate-800 min-h-0">
+          <AssistantPanel
+            kind="interview"
+            settings={settings}
+            notes={notes}
+            getTranscript={() => buildInterviewTranscript(session.getSnapshot().lines)}
+            onSayAnswer={snapshot.running && snapshot.canSpeak ? (text) => void session.sayText(text) : undefined}
+          />
+        </aside>
+      )}
       </div>
 
       {snapshot.error && (

@@ -236,9 +236,12 @@ Instala [VB-CABLE](https://vb-audio.com/Cable/) (gratis), elige «CABLE Input» 
 
 ---
 
-## 🎙️ Nota de Voz y acceso rápido
+## 🎙️ Nota de Voz, acceso rápido y asistente
 
-- **Icono en la bandeja del sistema** (junto al reloj): acceso directo a *Reunión*, *Entrevista*, *Nota de voz* y *Ajustes*. Se puede ocultar en Ajustes → Ventana & General.
+- **Acceso rápido sin abrir notas ni Ajustes:** atajos globales **Ctrl+Alt+R** (Reunión), **Ctrl+Alt+E** (Entrevista) y **Ctrl+Alt+V** (Nota de voz); accesos directos de Windows que puedes **anclar a la barra de tareas**; e icono en la bandeja del sistema (junto al reloj).
+- **Asistente de conversación (Reunión y Entrevista):** botón de **análisis** que extrae puntos clave, las preguntas que te hicieron con una **respuesta sugerida**, pendientes, acciones y alertas.
+- **Contexto:** carga tu CV, proyectos (texto, `.docx`, `.md`, `.txt`…) o tus propias notas, y las respuestas sugeridas se basan en lo que realmente has hecho. Las claves y contraseñas se enmascaran antes de enviar nada a la IA.
+- **Velocidad:** «Iniciar» responde al instante, cada etapa (transcribir, traducir, voz) se mide y se muestra con consejos, y la voz de respuestas largas empieza a sonar por frases.
 - **Nota de voz:** dicta o escribe un mensaje, tradúcelo si hace falta, escúchalo en tus auriculares y envíalo con tu propia voz por el micrófono virtual mientras grabas en WhatsApp, Telegram, Teams… También puedes guardarlo como MP3.
 
 ---
@@ -265,6 +268,9 @@ src/
     ai/              Capa de IA: proveedores (Claude, Hugging Face, compatibles con OpenAI), prompts, privacidad, radar
     meeting/         Reuniones: captura en dos pistas con detección de voz y transcripción
     interview/       Modo Entrevista: traducción en vivo, subtítulos y tu voz clonada
+    assistant/       Asistente: análisis y contexto (Reunión y Entrevista)
+    analysis/        Motor del análisis (prompts, interpretación de la respuesta)
+    context/         Biblioteca de contexto (CV, proyectos, notas, archivos)
     settings/        Ajustes: un archivo por pestaña
   defaultSettings.ts Ajustes por defecto (única fuente de verdad)
   utils/             Utilidades (Markdown, voz TTS, dispositivos de audio)
