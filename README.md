@@ -83,7 +83,7 @@ Esta versión incorpora importantes optimizaciones en la experiencia de uso, est
 - Historial de actividad registrado por nota con marcas de tiempo para seguimiento de tareas, bitácoras de trabajo o diario de desarrollo.
 
 ### 🤖 5. Asistente de IA Integrado (Hugging Face Router + Claude)
-- **Modelos Compatibles:** Conectado directamente a `openai/gpt-oss-120b` mediante Hugging Face Router y a **Claude 3.5 Sonnet** (`claude-3-5-sonnet-20241022`) de Anthropic.
+- **Modelos Compatibles:** Hugging Face Router (por defecto `Qwen/Qwen2.5-72B-Instruct`, con respaldo automático) y **Claude** de Anthropic (Sonnet para notas y Haiku para el radar de dudas en vivo).
 - **Acciones Rápidas con 1 Clic:**
   - 📄 **Resumir nota:** Extrae los puntos clave y conclusiones de notas extensas.
   - 🪄 **Mejorar redacción:** Perfecciona la claridad, gramática y tono profesional del texto.
@@ -207,14 +207,41 @@ Para utilizar las funciones de Inteligencia Artificial:
 2. En la pestaña **"IA & Modelos"**:
    - **Hugging Face (Recomendado):**
      - Endpoint por defecto: `https://router.huggingface.co/v1`
-     - Modelo por defecto: `openai/gpt-oss-120b`
+     - Modelo por defecto: `Qwen/Qwen2.5-72B-Instruct`
      - Pega tu API Key de Hugging Face (`hf_...`).
    - **Anthropic Claude (Opcional):**
-     - Modelo por defecto: `claude-3-5-sonnet-20241022`
+     - Modelo por defecto: `claude-sonnet-5-5` (los modelos retirados se reemplazan solos)
      - Pega tu clave de Anthropic (`sk-ant-...`).
 3. En la pestaña **"RAG & Cloudflare"** *(opcional)*:
    - Configura tu cuenta de Cloudflare Vectorize para sincronización semántica de notas.
-4. Presiona **"Guardar Ajustes"**. Las claves quedan guardadas localmente de forma segura en tu equipo (`%APPDATA%\StickyFlow\stickyflow\settings.json`).
+4. Presiona **"Guardar Ajustes"**. Las claves se guardan **cifradas** con el almacén seguro de Windows (DPAPI) y solo pueden leerse con tu usuario en este equipo. Nunca se incluyen en copias de seguridad ni exportaciones.
+
+---
+
+## 🔒 Privacidad y Seguridad
+
+- **Tus claves no salen de tu equipo:** se cifran con DPAPI de Windows y se excluyen de respaldos y exportaciones (que pueden terminar en OneDrive o Google Drive). Restaurar un respaldo nunca pisa tus claves.
+- **Enmascarado antes de enviar a la IA:** claves de API, tokens, JWT, llaves privadas y contraseñas se reemplazan por `[PROTEGIDO:…]`.
+- **Permisos mínimos:** solo micrófono, audio del sistema y portapapeles, y solo para las páginas de la propia app.
+- **Política de contenido estricta (CSP)** en la versión compilada.
+- **Tus notas nunca se suben a Git:** `mis_notas/`, `settings.json` y los logs están en `.gitignore`.
+
+---
+
+## 🗂️ Estructura del Código
+
+```
+electron/            Proceso principal (ventanas, archivos, respaldos)
+  secureSettings.js    Cifrado de claves y limpieza de respaldos
+src/
+  components/        Pantallas y piezas de interfaz
+  features/
+    ai/              Capa de IA: proveedores (Claude, Hugging Face), prompts, privacidad, radar
+    meeting/         Reuniones: captura en dos pistas con detección de voz y transcripción
+    settings/        Ajustes: un archivo por pestaña
+  defaultSettings.ts Ajustes por defecto (única fuente de verdad)
+  utils/             Utilidades (Markdown, voz TTS, dispositivos de audio)
+```
 
 ---
 
