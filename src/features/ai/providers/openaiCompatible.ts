@@ -3,6 +3,7 @@ import { DEFAULT_TIMEOUT_MS } from '../config';
 import { isLocalUrl } from '../presets';
 import { AiResponse, ProviderRequest } from '../types';
 import { describeNetworkError, fetchWithTimeout } from './http';
+import { emptyResponseMessage, parseChat, retryBudget, shouldRetryWithMoreTokens } from './chatResponse';
 
 /**
  * Cliente genérico para cualquier servicio con API compatible con OpenAI
@@ -13,11 +14,6 @@ import { describeNetworkError, fetchWithTimeout } from './http';
 export function buildChatUrl(baseUrl: string): string {
   const clean = baseUrl.trim().replace(/\/+$/, '').replace(/\/chat\/completions$/i, '');
   return `${clean}/chat/completions`;
-}
-
-/** Algunos modelos de razonamiento devuelven su "pensamiento" entre <think>…</think>; no es parte de la respuesta. */
-function stripThinking(text: string): string {
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -53,8 +49,8 @@ export async function callOpenAiCompatible(
   const model = (req.fast && provider.fastModel?.trim()) || provider.model?.trim();
   if (!model) return { success: false, error: `Falta el nombre del modelo de ${name} (Ajustes → IA).` };
 
-  try {
-    const response = await fetchWithTimeout(
+  const send = (maxTokens: number) =>
+    fetchWithTimeout(
       buildChatUrl(baseUrl),
       {
         method: 'POST',
@@ -69,12 +65,15 @@ export async function callOpenAiCompatible(
             { role: 'user', content: req.user }
           ],
           temperature: 0.6,
-          max_tokens: req.maxTokens,
+          max_tokens: maxTokens,
           stream: false
         })
       },
       req.timeoutMs ?? DEFAULT_TIMEOUT_MS
     );
+
+  try {
+    let response = await send(req.maxTokens);
 
     if (!response.ok) {
       const detail = await readErrorMessage(response);
@@ -93,11 +92,16 @@ export async function callOpenAiCompatible(
       }
     }
 
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
-    const result = typeof content === 'string' ? stripThinking(content) : '';
-    if (!result) return { success: false, error: `${name} devolvió una respuesta vacía.` };
-    return { success: true, result };
+    let parsed = parseChat(await response.json());
+
+    // Modelo que «piensa»: se quedó sin espacio para escribir → un reintento con bastante más margen.
+    if (shouldRetryWithMoreTokens(parsed)) {
+      response = await send(retryBudget(req.maxTokens));
+      if (response.ok) parsed = parseChat(await response.json());
+    }
+
+    if (!parsed.text) return { success: false, error: emptyResponseMessage(name, model, parsed) };
+    return { success: true, result: parsed.text };
   } catch (err: any) {
     // En un servidor local, "Failed to fetch" casi siempre significa que no está encendido o bloquea el acceso (CORS).
     if (isLocalUrl(baseUrl) && err?.name !== 'AbortError') {

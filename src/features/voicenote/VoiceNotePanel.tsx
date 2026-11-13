@@ -19,7 +19,7 @@ import { AppSettings } from '../../types';
 import { useVoiceNote } from './useVoiceNote';
 import { MAX_NOTE_CHARS } from './VoiceNoteController';
 import { useVirtualMicSetup } from '../interview/useVirtualMicSetup';
-import { VirtualMicAssistant } from '../interview/VirtualMicAssistant';
+import { AudioSetup } from '../interview/AudioSetup';
 import { INTERVIEW_LANGUAGES, languageName } from '../interview/languages';
 import { isUsableVirtualSink } from '../interview/session';
 import { isAiReady } from '../ai/status';
@@ -135,6 +135,8 @@ export const VoiceNotePanel: React.FC<VoiceNotePanelProps> = ({ settings, onShow
         <Chip ok={sinkReady} label="Micrófono virtual" hint="Elige la salida del cable abajo. Sin él puedes escuchar y guardar el MP3, pero no enviar" />
       </div>
 
+      <AudioSetup setup={setup} disabled={busy} noneLabel="— Ninguna (solo escuchar y guardar MP3) —" />
+
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {/* 1 · Mensaje */}
         <Card step="1" title="Dicta o escribe tu mensaje">
@@ -146,19 +148,6 @@ export const VoiceNotePanel: React.FC<VoiceNotePanelProps> = ({ settings, onShow
             className={textareaClass}
           />
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <select
-              value={setup.micId}
-              onChange={(e) => setup.setMicId(e.target.value)}
-              disabled={busy}
-              title="Tu micrófono para dictar"
-              className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 max-w-[16rem] disabled:opacity-60"
-            >
-              {setup.mics.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
             {!recording ? (
               <button
                 type="button"
@@ -351,36 +340,6 @@ export const VoiceNotePanel: React.FC<VoiceNotePanelProps> = ({ settings, onShow
           </ol>
         </details>
 
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-          <VirtualMicAssistant
-            outputs={setup.outputs}
-            inputs={setup.mics}
-            outputId={setup.outputId}
-            inputId={setup.virtualInputId}
-            onInputChange={setup.changeVirtualInput}
-            disabled={busy}
-          />
-          <div className="px-4 py-2.5 text-xs space-y-1">
-            <label className="block space-y-1">
-              <span className="text-slate-400">Salida de StickyFlow (por donde sale tu voz)</span>
-              <select
-                value={setup.outputId}
-                onChange={(e) => setup.changeOutput(e.target.value)}
-                disabled={busy}
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 disabled:opacity-60"
-              >
-                <option value="">— Ninguno (solo escuchar y guardar MP3) —</option>
-                {setup.outputs
-                  .filter((d) => isUsableVirtualSink(d.id))
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
-        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { AppSettings } from '../../../types';
 import { runAi } from '../../ai/providers';
 import { englishLanguageName } from '../languages';
 
-const TRANSLATE_TIMEOUT_MS = 15_000;
+const TRANSLATE_TIMEOUT_MS = 25_000;
 
 export interface TranslateResult {
   success: boolean;
@@ -59,7 +59,8 @@ export async function translateText(
     {
       system: buildSystemPrompt(from, to, settings.interviewContext),
       user: `${context}Message to translate:\n${clean}`,
-      maxTokens: Math.min(800, Math.max(120, clean.length * 3)),
+      // Solo es un tope: los modelos normales usan lo que necesitan. Los que razonan necesitan margen para pensar.
+      maxTokens: Math.min(3000, Math.max(1024, clean.length * 5)),
       fast: true,
       singleAttempt: true,
       timeoutMs: TRANSLATE_TIMEOUT_MS

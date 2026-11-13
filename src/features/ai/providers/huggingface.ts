@@ -7,6 +7,7 @@ import {
 } from '../config';
 import { ProviderRequest, AiResponse } from '../types';
 import { describeNetworkError, fetchWithTimeout } from './http';
+import { emptyResponseMessage, parseChat, retryBudget, shouldRetryWithMoreTokens } from './chatResponse';
 
 function modelsToTry(settings: AppSettings, singleAttempt?: boolean): string[] {
   const chosen = settings.hfModel?.trim();
@@ -30,29 +31,36 @@ export async function callHuggingFace(req: ProviderRequest, settings: AppSetting
 
   for (const model of modelsToTry(settings, req.singleAttempt)) {
     try {
-      const response = await fetchWithTimeout(
-        `${endpoint}/chat/completions`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: req.system },
-              { role: 'user', content: req.user }
-            ],
-            temperature: 0.6,
-            max_tokens: req.maxTokens
-          })
-        },
-        req.timeoutMs ?? DEFAULT_TIMEOUT_MS
-      );
+      const send = (maxTokens: number) =>
+        fetchWithTimeout(
+          `${endpoint}/chat/completions`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: 'system', content: req.system },
+                { role: 'user', content: req.user }
+              ],
+              temperature: 0.6,
+              max_tokens: maxTokens
+            })
+          },
+          req.timeoutMs ?? DEFAULT_TIMEOUT_MS
+        );
+
+      let response = await send(req.maxTokens);
 
       if (response.ok) {
-        const data = await response.json();
-        const result = data.choices?.[0]?.message?.content?.trim();
-        if (result) return { success: true, result };
-        lastError = 'El modelo devolvió una respuesta vacía.';
+        let parsed = parseChat(await response.json());
+        // Modelo que «piensa»: se quedó sin espacio para escribir → un reintento con bastante más margen.
+        if (shouldRetryWithMoreTokens(parsed)) {
+          response = await send(retryBudget(req.maxTokens));
+          if (response.ok) parsed = parseChat(await response.json());
+        }
+        if (parsed.text) return { success: true, result: parsed.text };
+        lastError = emptyResponseMessage('Hugging Face', model, parsed);
         continue;
       }
 

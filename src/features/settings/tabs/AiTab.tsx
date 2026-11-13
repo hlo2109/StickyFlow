@@ -5,6 +5,7 @@ import { SettingsTabProps } from '../types';
 import { CLAUDE_DEFAULT_MODEL, resolveClaudeModel } from '../../ai/config';
 import { PROVIDER_PRESETS } from '../../ai/presets';
 import { testClaude, testHuggingFace } from '../../ai/connectionTest';
+import { convertForeignHfToCustom, hfPointsElsewhere, providerNameFromUrl } from '../../ai/migrateHf';
 import { ConnectionTestButton } from './ai/ConnectionTestButton';
 import { CustomProviderCard } from './ai/CustomProviderCard';
 
@@ -115,6 +116,22 @@ export const AiTab: React.FC<SettingsTabProps> = ({ formData, setFormData }) => 
       {/* Hugging Face */}
       <div className={cardClass}>
         <span className="font-semibold text-xs text-slate-700 dark:text-slate-200">Hugging Face Router</span>
+
+        {hfPointsElsewhere(formData) && (
+          <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 space-y-1.5">
+            <div>
+              <b>Este endpoint no es de Hugging Face</b> (es de {providerNameFromUrl(formData.hfEndpoint)}). Funciona a medias y
+              hace fallar el dictado con Whisper. Conviértelo en un proveedor propio para que todo vaya bien.
+            </div>
+            <button
+              type="button"
+              onClick={() => setFormData((prev) => ({ ...prev, ...convertForeignHfToCustom(prev) }))}
+              className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer"
+            >
+              Convertir en proveedor propio ({providerNameFromUrl(formData.hfEndpoint)})
+            </button>
+          </div>
+        )}
         <div>
           <label className="text-[11px] text-slate-500 block mb-0.5">Endpoint</label>
           <input

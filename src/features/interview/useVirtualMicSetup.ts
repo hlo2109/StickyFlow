@@ -6,7 +6,8 @@ import { findPairedInput, isVirtualOutputLabel } from './services/virtualMic';
 
 /**
  * Dispositivos de audio para los modos que usan el micrófono virtual (Entrevista y Nota de voz):
- * tu micrófono real, la salida del cable y su micrófono pareja. Se recuerdan entre sesiones.
+ * tu micrófono real, la salida del cable, su micrófono pareja y (solo Entrevista) la fuente del audio de ellos.
+ * Todo se autodetecta y se recuerda entre sesiones.
  */
 export function useVirtualMicSetup(settings: AppSettings) {
   const [mics, setMics] = useState<AudioDeviceInfo[]>([]);
@@ -14,6 +15,7 @@ export function useVirtualMicSetup(settings: AppSettings) {
   const [micId, setMicId] = useState('');
   const [outputId, setOutputId] = useState(settings.interviewOutputDeviceId || '');
   const [virtualInputId, setVirtualInputId] = useState(settings.interviewVirtualMicInputId || '');
+  const [theirSourceId, setTheirSourceId] = useState(settings.interviewTheirAudioDeviceId || '');
 
   useEffect(() => {
     getAudioDevices().then(({ inputs, outputs: outs }) => {
@@ -37,11 +39,12 @@ export function useVirtualMicSetup(settings: AppSettings) {
     if (pair.input) setVirtualInputId(pair.input.id);
   }, [outputs, mics, outputId, virtualInputId]);
 
-  const persist = (over: { outputId?: string; virtualInputId?: string }) => {
+  const persist = (over: { outputId?: string; virtualInputId?: string; theirSourceId?: string }) => {
     window.electronAPI?.saveSettings?.({
       ...settings,
       interviewOutputDeviceId: over.outputId ?? outputId,
-      interviewVirtualMicInputId: over.virtualInputId ?? virtualInputId
+      interviewVirtualMicInputId: over.virtualInputId ?? virtualInputId,
+      interviewTheirAudioDeviceId: over.theirSourceId ?? theirSourceId
     });
   };
 
@@ -55,11 +58,35 @@ export function useVirtualMicSetup(settings: AppSettings) {
     persist({ virtualInputId: id });
   };
 
-  /** Los ajustes con la salida elegida aquí (lo que usan los controladores). */
+  const changeTheirSource = (id: string) => {
+    setTheirSourceId(id);
+    persist({ theirSourceId: id });
+  };
+
+  /** Los ajustes con lo elegido aquí (lo que usan los controladores). */
   const effectiveSettings = useMemo<AppSettings>(
-    () => ({ ...settings, interviewOutputDeviceId: outputId, interviewVirtualMicInputId: virtualInputId }),
-    [settings, outputId, virtualInputId]
+    () => ({
+      ...settings,
+      interviewOutputDeviceId: outputId,
+      interviewVirtualMicInputId: virtualInputId,
+      interviewTheirAudioDeviceId: theirSourceId
+    }),
+    [settings, outputId, virtualInputId, theirSourceId]
   );
 
-  return { mics, outputs, micId, setMicId, outputId, changeOutput, virtualInputId, changeVirtualInput, effectiveSettings };
+  return {
+    mics,
+    outputs,
+    micId,
+    setMicId,
+    outputId,
+    changeOutput,
+    virtualInputId,
+    changeVirtualInput,
+    theirSourceId,
+    changeTheirSource,
+    effectiveSettings
+  };
 }
+
+export type VirtualMicSetup = ReturnType<typeof useVirtualMicSetup>;

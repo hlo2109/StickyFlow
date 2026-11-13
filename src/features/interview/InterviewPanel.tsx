@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Languages,
@@ -16,13 +16,12 @@ import {
   Mic
 } from 'lucide-react';
 import { AppSettings } from '../../types';
-import { getAudioDevices, AudioDeviceInfo } from '../../utils/audioService';
 import { useInterviewSession } from './useInterviewSession';
 import { isUsableVirtualSink, InterviewLine } from './session';
 import { languageName } from './languages';
 import { isAiReady } from '../ai/status';
-import { VirtualMicAssistant } from './VirtualMicAssistant';
-import { findPairedInput, isVirtualOutputLabel } from './services/virtualMic';
+import { AudioSetup } from './AudioSetup';
+import { useVirtualMicSetup } from './useVirtualMicSetup';
 
 interface InterviewPanelProps {
   settings: AppSettings;
@@ -114,35 +113,12 @@ const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (i
 };
 
 export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack, onOpenVoiceNote, onClose }) => {
-  const [mics, setMics] = useState<AudioDeviceInfo[]>([]);
-  const [outputs, setOutputs] = useState<AudioDeviceInfo[]>([]);
-  const [micId, setMicId] = useState('');
-  const [outputId, setOutputId] = useState(settings.interviewOutputDeviceId || '');
-  const [theirSourceId, setTheirSourceId] = useState(settings.interviewTheirAudioDeviceId || '');
-  const [virtualInputId, setVirtualInputId] = useState(settings.interviewVirtualMicInputId || '');
+  // Dispositivos de audio (autodetectados y recordados): lógica compartida con «Nota de voz».
+  const setup = useVirtualMicSetup(settings);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
-
-  // El micrófono virtual elegido aquí se usa en vivo y se recuerda para la próxima vez.
-  const effectiveSettings = useMemo<AppSettings>(
-    () => ({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: theirSourceId }),
-    [settings, outputId, theirSourceId]
-  );
-  const { session, snapshot } = useInterviewSession(effectiveSettings);
-
-  useEffect(() => {
-    getAudioDevices().then(({ inputs, outputs: outs }) => {
-      setMics(inputs);
-      setOutputs(outs);
-      if (inputs.length > 0) setMicId((prev) => prev || inputs[0].id);
-      // Autodetectar VB-CABLE si todavía no se eligió un micrófono virtual.
-      setOutputId((prev) => {
-        if (isUsableVirtualSink(prev) && outs.some((o) => o.id === prev)) return prev;
-        return outs.find((o) => /cable input/i.test(o.label))?.id ?? '';
-      });
-    });
-  }, []);
+  const { session, snapshot } = useInterviewSession(setup.effectiveSettings);
 
   useEffect(() => {
     if (!snapshot.running) return;
@@ -154,49 +130,22 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: 'smooth' });
   }, [snapshot.lines.length]);
 
-  const handleOutputChange = (id: string) => {
-    setOutputId(id);
-    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: id, interviewTheirAudioDeviceId: theirSourceId, interviewVirtualMicInputId: virtualInputId });
-  };
-
-  // Empareja el micrófono virtual con la salida elegida (si todavía no hay uno válido).
-  useEffect(() => {
-    const out = outputs.find((o) => o.id === outputId);
-    if (!out || !isVirtualOutputLabel(out.label)) return;
-    if (virtualInputId && mics.some((m) => m.id === virtualInputId)) return;
-    const pair = findPairedInput(out, mics);
-    if (pair.input) setVirtualInputId(pair.input.id);
-  }, [outputs, mics, outputId, virtualInputId]);
-
-  const handleVirtualInputChange = (id: string) => {
-    setVirtualInputId(id);
-    window.electronAPI?.saveSettings?.({
-      ...settings,
-      interviewOutputDeviceId: outputId,
-      interviewTheirAudioDeviceId: theirSourceId,
-      interviewVirtualMicInputId: id
-    });
-  };
-
-  const handleTheirSourceChange = (id: string) => {
-    setTheirSourceId(id);
-    window.electronAPI?.saveSettings?.({ ...settings, interviewOutputDeviceId: outputId, interviewTheirAudioDeviceId: id, interviewVirtualMicInputId: virtualInputId });
-  };
-
   // Fuentes válidas para «Ellos»: nunca tu propio micrófono ni el cable por donde sale tu voz traducida
   // (ahí iría justo lo que NO queremos oír como si fuera de ellos).
-  const theirSources = mics.filter((d) => d.id !== micId && !/cable output/i.test(d.label) && !/^(default|communications)/i.test(d.label));
+  const theirSources = setup.mics.filter(
+    (d) => d.id !== setup.micId && !/cable output/i.test(d.label) && !/^(default|communications)/i.test(d.label)
+  );
 
   const sttReady = Boolean(settings.deepgramApiKey?.trim() || settings.hfApiKey?.trim());
   const translateReady = isAiReady(settings);
   const voiceReady = Boolean(settings.elevenLabsApiKey?.trim() && settings.elevenLabsVoiceId?.trim());
-  const sinkReady = isUsableVirtualSink(outputId);
+  const sinkReady = isUsableVirtualSink(setup.outputId);
   const canStart = sttReady && translateReady;
 
   const mine = settings.interviewMyLang || 'es';
   const theirs = settings.interviewTheirLang || 'en';
 
-  const handleStart = () => session.start({ micDeviceId: micId, autoSpeak });
+  const handleStart = () => session.start({ micDeviceId: setup.micId, autoSpeak });
   const handleToggleAutoSpeak = () => {
     const next = !autoSpeak;
     setAutoSpeak(next);
@@ -278,97 +227,52 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
         />
       </div>
 
-      {/* Dispositivos */}
-      <div className="px-4 py-2.5 border-b border-slate-800 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end shrink-0 text-xs">
-        <label className="space-y-1">
-          <span className="text-slate-400">Tu micrófono (lo que dices)</span>
-          <select
-            value={micId}
-            onChange={(e) => setMicId(e.target.value)}
-            disabled={snapshot.running}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 disabled:opacity-60"
+      {/* Audio: solo lo necesario; lo demás está en «Opciones avanzadas» */}
+      <AudioSetup
+        setup={setup}
+        disabled={snapshot.running}
+        noneLabel="— Ninguna (solo subtítulos) —"
+        echoesBlocked={snapshot.echoesBlocked}
+        rightSlot={
+          <button
+            type="button"
+            onClick={handleToggleAutoSpeak}
+            disabled={!voiceReady || !sinkReady}
+            title="Si está apagado, revisas la traducción y la dices con el botón 🔊 cuando quieras"
+            className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 cursor-pointer disabled:opacity-40 ${
+              autoSpeak && voiceReady && sinkReady
+                ? 'bg-sky-600/20 border-sky-500/40 text-sky-300'
+                : 'bg-slate-800 border-slate-700 text-slate-400'
+            }`}
           >
-            {mics.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-slate-400">Salida de StickyFlow (por donde sale tu voz traducida)</span>
-          <select
-            value={outputId}
-            onChange={(e) => handleOutputChange(e.target.value)}
-            disabled={snapshot.running}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 disabled:opacity-60"
-          >
-            <option value="">— Ninguno (solo subtítulos) —</option>
-            {outputs
-              .filter((d) => isUsableVirtualSink(d.id))
-              .map((d) => (
+            {autoSpeak && voiceReady && sinkReady ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            {autoSpeak && voiceReady && sinkReady ? 'Hablar automático' : 'Hablar manual'}
+          </button>
+        }
+        advanced={
+          <label className="block space-y-1">
+            <span className="text-slate-400">Audio de ellos</span>
+            <select
+              value={setup.theirSourceId}
+              onChange={(e) => setup.changeTheirSource(e.target.value)}
+              disabled={snapshot.running}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 disabled:opacity-60"
+            >
+              <option value="">Audio del sistema (todo lo que suena)</option>
+              {theirSources.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.label}
+                  Aislado: {d.label}
                 </option>
               ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={handleToggleAutoSpeak}
-          disabled={!voiceReady || !sinkReady}
-          title="Si está apagado, revisas la traducción y la dices con el botón 🔊 cuando quieras"
-          className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 cursor-pointer disabled:opacity-40 ${
-            autoSpeak && voiceReady && sinkReady
-              ? 'bg-sky-600/20 border-sky-500/40 text-sky-300'
-              : 'bg-slate-800 border-slate-700 text-slate-400'
-          }`}
-        >
-          {autoSpeak && voiceReady && sinkReady ? <Volume2 size={14} /> : <VolumeX size={14} />}
-          {autoSpeak && voiceReady && sinkReady ? 'Hablar automático' : 'Hablar manual'}
-        </button>
-      </div>
-
-      {/* Micrófono virtual de StickyFlow: emparejar, probar y nombrar */}
-      <VirtualMicAssistant
-        outputs={outputs}
-        inputs={mics}
-        outputId={outputId}
-        inputId={virtualInputId}
-        onInputChange={handleVirtualInputChange}
-        disabled={snapshot.running}
+            </select>
+            <span className={`block text-[11px] ${setup.theirSourceId ? 'text-emerald-400' : 'text-slate-500'}`}>
+              {setup.theirSourceId
+                ? '✓ Fuente aislada: tu voz traducida no puede colarse como si fuera de ellos'
+                : 'Lo normal. Si tu voz traducida se cuela en «Ellos», se filtra sola (eco).'}
+            </span>
+          </label>
+        }
       />
-
-      {/* Fuente del audio de ellos */}
-      <div className="px-4 py-2 border-b border-slate-800 flex flex-wrap items-center gap-x-4 gap-y-1.5 shrink-0 text-xs">
-        <label className="flex items-center gap-2 min-w-0">
-          <span className="text-slate-400 shrink-0">Audio de ellos</span>
-          <select
-            value={theirSourceId}
-            onChange={(e) => handleTheirSourceChange(e.target.value)}
-            disabled={snapshot.running}
-            title="Audio del sistema oye todo lo que suena, incluida tu voz traducida (se filtra el eco). Un dispositivo de entrada aislado no mezcla nada más."
-            className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 max-w-[22rem] disabled:opacity-60"
-          >
-            <option value="">Audio del sistema (todo lo que suena)</option>
-            {theirSources.map((d) => (
-              <option key={d.id} value={d.id}>
-                Aislado: {d.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <span className={`text-[11px] ${theirSourceId ? 'text-emerald-400' : 'text-slate-500'}`}>
-          {theirSourceId
-            ? '✓ Fuente aislada: tu voz traducida no puede colarse'
-            : 'Se filtra automáticamente el eco de tu voz traducida'}
-        </span>
-        {snapshot.echoesBlocked > 0 && (
-          <span className="text-[11px] text-sky-400" title="Veces que tu propia voz traducida volvió a entrar por el audio del sistema y se descartó">
-            🔇 {snapshot.echoesBlocked} eco{snapshot.echoesBlocked === 1 ? '' : 's'} de tu voz filtrado{snapshot.echoesBlocked === 1 ? '' : 's'}
-          </span>
-        )}
-      </div>
 
       {/* Conversación */}
       <div ref={feedRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
