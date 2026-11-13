@@ -49,6 +49,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   opacity: 0.98,
   startDockOnly: true,
   showTrayIcon: true,
+  quickShortcuts: true,
+  startWithWindows: false,
   dockPosition: 'right',
   dockShowTitles: true,
   dockEnabled: true,

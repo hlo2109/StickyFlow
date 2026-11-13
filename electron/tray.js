@@ -86,11 +86,13 @@ function buildMenuTemplate(handlers) {
   return [
     { label: 'Abrir StickyFlow', click: () => handlers.openMain() },
     { type: 'separator' },
-    { label: '🎧  Reunión (grabar y minuta)', click: () => handlers.openView('meeting') },
-    { label: '🌐  Entrevista (traducción en vivo)', click: () => handlers.openView('interview') },
-    { label: '🎙️  Nota de voz (WhatsApp y más)', click: () => handlers.openView('voicenote') },
+    // `accelerator` solo MUESTRA el atajo (registerAccelerator:false): el registro real lo hace shortcuts.js
+    { label: '🎧  Reunión (grabar y minuta)', accelerator: 'Ctrl+Alt+R', registerAccelerator: false, click: () => handlers.openView('meeting') },
+    { label: '🌐  Entrevista (traducción en vivo)', accelerator: 'Ctrl+Alt+E', registerAccelerator: false, click: () => handlers.openView('interview') },
+    { label: '🎙️  Nota de voz (WhatsApp y más)', accelerator: 'Ctrl+Alt+V', registerAccelerator: false, click: () => handlers.openView('voicenote') },
     { type: 'separator' },
     { label: '⚙️  Ajustes', click: () => handlers.openSettings() },
+    { label: '📌  Crear accesos directos en el escritorio', click: () => handlers.createShortcuts() },
     { type: 'separator' },
     { label: 'Salir de StickyFlow', click: () => handlers.quit() }
   ];

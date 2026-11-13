@@ -36,6 +36,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Clipboard
   writeClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
   openSoundPanel: (tab) => ipcRenderer.invoke('system:open-sound-panel', tab),
+  createShortcuts: () => ipcRenderer.invoke('system:create-shortcuts'),
+  openTaskbarSettings: () => ipcRenderer.invoke('system:open-taskbar-settings'),
+  getShortcutStatus: () => ipcRenderer.invoke('system:shortcut-status'),
 
   // Audio / Desktop Sources
   getDesktopSources: () => ipcRenderer.invoke('system-audio:getSources'),

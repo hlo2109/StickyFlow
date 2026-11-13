@@ -9,6 +9,12 @@
  * Cada sentido tiene su propia cola: los subtítulos de ellos nunca esperan a que termine de
  * hablar tu voz sintética, y el orden de tus frases se respeta.
  *
+ * VELOCIDAD (lo que más se nota en una conversación):
+ *  - Cada etapa se MIDE (esperar, transcribir, traducir, generar voz) y se muestra, para saber qué tarda.
+ *  - La voz de una respuesta con varias frases se genera EN PARALELO por trozos y la primera suena en cuanto
+ *    está lista (en vez de esperar al audio completo).
+ *  - En modo manual puede dejarse la voz preparada de antemano: pulsar 🔊 suena al instante.
+ *
  * No depende de React ni del navegador: las piezas externas llegan por `deps`, lo que permite
  * probarla con simulaciones.
  */
@@ -17,12 +23,25 @@ import { AppSettings } from '../../types';
 import { meetingCapture, MeetingSegment } from '../meeting/capture/meetingCapture';
 import { speechToText, SttResult } from './services/stt';
 import { translateText, TranslateResult } from './services/translate';
-import { synthesizeSpeech } from './services/elevenlabs';
+import { synthesizeSpeech, SynthOptions } from './services/elevenlabs';
 import { SpeechPlayer } from './services/speechPlayer';
 import { isLikelyEcho, pruneSpoken, SpokenRecord } from './echoGuard';
+import { splitForSpeech } from './sentences';
 
 export type LineSide = 'me' | 'them';
 export type LineStatus = 'translating' | 'ready' | 'error';
+
+/** Cuánto tardó cada etapa de una frase (milisegundos). */
+export interface LineTimings {
+  /** Esperando turno (otra frase anterior se estaba procesando) */
+  waitMs?: number;
+  sttMs?: number;
+  translateMs?: number;
+  /** Hasta tener lista la PRIMERA parte de la voz */
+  ttsMs?: number;
+  /** Desde que terminaste de hablar hasta que tu voz empieza a sonar (solo en modo automático) */
+  totalMs?: number;
+}
 
 export interface InterviewLine {
   id: string;
@@ -32,23 +51,41 @@ export interface InterviewLine {
   status: LineStatus;
   spoken: boolean;
   speaking: boolean;
+  /** La voz ya está generada: al pulsar 🔊 suena al instante */
+  audioReady?: boolean;
+  timings?: LineTimings;
   error?: string;
   at: number;
+}
+
+export interface SpeedStats {
+  count: number;
+  sttMs: number;
+  translateMs: number;
+  ttsMs: number;
+  totalMs: number;
 }
 
 export interface InterviewSnapshot {
   lines: InterviewLine[];
   running: boolean;
+  /** Arrancando (mientras se conecta el audio): sirve para mostrar «Conectando…» al instante */
+  starting: boolean;
   /** Se pueden emitir audios: hay micrófono virtual elegido y claves de ElevenLabs */
   canSpeak: boolean;
   autoSpeak: boolean;
+  /** En modo manual, genera la voz en cuanto se traduce (gasta más caracteres, pero 🔊 suena al instante) */
+  prefetch: boolean;
   speaking: boolean;
   pendingSpeech: number;
+  /** Caracteres de voz generados (es lo que cobra ElevenLabs) */
   charsSpoken: number;
   /** Veces que se descartó tu propia voz traducida al volver a entrar por el audio del sistema */
   echoesBlocked: number;
   /** Se usa una fuente aislada para el audio de ellos (no hay riesgo de que entre tu propia voz) */
   isolated: boolean;
+  /** Promedios de tiempo de tus frases (para ver dónde está la demora) */
+  stats: SpeedStats;
   error: string;
   startedAt: number | null;
 }
@@ -56,9 +93,14 @@ export interface InterviewSnapshot {
 export interface InterviewDeps {
   speechToText: (blob: Blob, language: string, settings: AppSettings) => Promise<SttResult>;
   translateText: (text: string, from: string, to: string, settings: AppSettings, recent?: string[]) => Promise<TranslateResult>;
-  synthesizeSpeech: (text: string, settings: AppSettings) => Promise<{ audio?: Blob; error?: string }>;
+  synthesizeSpeech: (text: string, settings: AppSettings, options?: SynthOptions) => Promise<{ audio?: Blob; error?: string }>;
   capture: {
-    startCapture: (o: { micDeviceId?: string; systemDeviceId?: string; onSegment?: (s: MeetingSegment) => void }) => Promise<{ success: boolean; error?: string }>;
+    startCapture: (o: {
+      micDeviceId?: string;
+      systemDeviceId?: string;
+      silenceMs?: number;
+      onSegment?: (s: MeetingSegment) => void;
+    }) => Promise<{ success: boolean; error?: string }>;
     stop: () => Promise<void>;
   };
   createPlayer: (onChange: (pending: number, speaking: boolean) => void) => Pick<SpeechPlayer, 'setSink' | 'enqueue' | 'stop'>;
@@ -77,22 +119,47 @@ export function isUsableVirtualSink(deviceId?: string): boolean {
   return Boolean(deviceId) && deviceId !== 'default' && deviceId !== 'communications';
 }
 
+/** Peticiones de voz simultáneas (los planes de ElevenLabs limitan las concurrentes; 2 cabe en casi todos). */
+const TTS_CONCURRENCY = 2;
+
 export interface StartOptions {
   micDeviceId?: string;
   autoSpeak: boolean;
+  /** Silencio (ms) que cierra una frase: menos = responde antes (pero puede partir frases con pausas). */
+  silenceMs?: number;
+  prefetch?: boolean;
+}
+
+/** Promedio de los tiempos de las frases tuyas que ya tienen medición. */
+export function computeStats(lines: InterviewLine[]): SpeedStats {
+  const mine = lines.filter((l) => l.side === 'me' && l.timings && l.timings.translateMs !== undefined);
+  const avg = (pick: (t: LineTimings) => number | undefined) => {
+    const v = mine.map((l) => pick(l.timings as LineTimings)).filter((n): n is number => typeof n === 'number');
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0;
+  };
+  return {
+    count: mine.length,
+    sttMs: avg((t) => t.sttMs),
+    translateMs: avg((t) => t.translateMs),
+    ttsMs: avg((t) => t.ttsMs),
+    totalMs: avg((t) => t.totalMs)
+  };
 }
 
 export class InterviewSession {
   private snapshot: InterviewSnapshot = {
     lines: [],
     running: false,
+    starting: false,
     canSpeak: false,
     autoSpeak: true,
+    prefetch: false,
     speaking: false,
     pendingSpeech: 0,
     charsSpoken: 0,
     echoesBlocked: 0,
     isolated: false,
+    stats: { count: 0, sttMs: 0, translateMs: 0, ttsMs: 0, totalMs: 0 },
     error: '',
     startedAt: null
   };
@@ -103,6 +170,9 @@ export class InterviewSession {
   private seq = 0;
   /** Lo que mi voz sintética dijo hace poco: sirve para reconocer su eco en el audio del sistema */
   private spoken: SpokenRecord[] = [];
+  /** Voz ya generada por línea (trozos en orden): para «voz de antemano» y para repetir sin volver a pagar */
+  private audioCache = new Map<string, Blob[]>();
+  private arrivedAt = new Map<string, number>();
   private generation = 0; // se incrementa al detener para ignorar trabajo pendiente
 
   constructor(private getSettings: () => AppSettings, private deps: InterviewDeps = defaultDeps) {
@@ -127,7 +197,13 @@ export class InterviewSession {
   }
 
   private updateLine(id: string, partial: Partial<InterviewLine>): void {
-    this.patch({ lines: this.snapshot.lines.map((l) => (l.id === id ? { ...l, ...partial } : l)) });
+    const lines = this.snapshot.lines.map((l) => (l.id === id ? { ...l, ...partial } : l));
+    this.patch({ lines, stats: computeStats(lines) });
+  }
+
+  private mergeTimings(id: string, t: LineTimings): void {
+    const line = this.snapshot.lines.find((l) => l.id === id);
+    this.updateLine(id, { timings: { ...(line?.timings ?? {}), ...t } });
   }
 
   private addLine(side: LineSide, original: string): InterviewLine {
@@ -154,6 +230,11 @@ export class InterviewSession {
     return this.snapshot.lines.slice(-6).map((l) => l.original);
   }
 
+  private canSpeakNow(): boolean {
+    const s = this.getSettings();
+    return isUsableVirtualSink(s.interviewOutputDeviceId) && Boolean(s.elevenLabsApiKey?.trim()) && Boolean(s.elevenLabsVoiceId?.trim());
+  }
+
   // ---------------------------------------------------------------- ciclo de vida
 
   public clearError(): void {
@@ -164,44 +245,54 @@ export class InterviewSession {
     this.patch({ autoSpeak: value });
   }
 
+  public setPrefetch(value: boolean): void {
+    this.patch({ prefetch: value });
+  }
+
   public async start(options: StartOptions): Promise<{ success: boolean; error?: string }> {
-    if (this.snapshot.running) return { success: true };
+    if (this.snapshot.running || this.snapshot.starting) return { success: true };
+    // Feedback inmediato: la pantalla puede mostrar «Conectando…» mientras Windows abre el audio.
+    this.patch({ starting: true });
     const settings = this.getSettings();
 
     const sink = settings.interviewOutputDeviceId;
-    const canSpeak =
-      isUsableVirtualSink(sink) && Boolean(settings.elevenLabsApiKey?.trim()) && Boolean(settings.elevenLabsVoiceId?.trim());
+    const canSpeak = this.canSpeakNow();
     this.player.setSink(canSpeak ? (sink as string) : '');
 
     this.generation++;
     this.chains = { me: Promise.resolve(), them: Promise.resolve() };
     this.spoken = [];
+    this.audioCache.clear();
+    this.arrivedAt.clear();
     const systemDeviceId = settings.interviewTheirAudioDeviceId?.trim() || undefined;
     this.patch({
       lines: [],
       error: '',
       charsSpoken: 0,
       echoesBlocked: 0,
+      stats: { count: 0, sttMs: 0, translateMs: 0, ttsMs: 0, totalMs: 0 },
       isolated: Boolean(systemDeviceId),
       canSpeak,
-      autoSpeak: options.autoSpeak && canSpeak
+      autoSpeak: options.autoSpeak && canSpeak,
+      prefetch: Boolean(options.prefetch) && canSpeak
     });
 
     const gen = this.generation;
     const res = await this.deps.capture.startCapture({
       micDeviceId: options.micDeviceId,
       systemDeviceId,
+      silenceMs: options.silenceMs,
       onSegment: (seg) => {
         if (gen === this.generation) this.enqueueSegment(seg);
       }
     });
 
     if (!res.success) {
-      this.patch({ error: res.error || 'No se pudo iniciar la captura de audio.' });
+      this.patch({ starting: false, error: res.error || 'No se pudo iniciar la captura de audio.' });
       return { success: false, error: res.error };
     }
 
-    this.patch({ running: true, startedAt: Date.now() });
+    this.patch({ starting: false, running: true, startedAt: Date.now() });
     return { success: true };
   }
 
@@ -225,18 +316,22 @@ export class InterviewSession {
 
   private enqueueSegment(seg: MeetingSegment): void {
     const side: LineSide = seg.source === 'mic' ? 'me' : 'them';
-    this.chains[side] = this.chains[side].then(() => this.processSegment(seg, side)).catch((e) => {
+    const arrived = Date.now();
+    this.chains[side] = this.chains[side].then(() => this.processSegment(seg, side, arrived)).catch((e) => {
       console.warn('[InterviewSession] error procesando frase:', e);
     });
   }
 
-  private async processSegment(seg: MeetingSegment, side: LineSide): Promise<void> {
+  private async processSegment(seg: MeetingSegment, side: LineSide, arrived: number): Promise<void> {
     const settings = this.getSettings();
     const { mine, theirs } = this.langs();
     const from = side === 'me' ? mine : theirs;
     const to = side === 'me' ? theirs : mine;
 
+    const waitMs = Date.now() - arrived;
+    const tStt = Date.now();
     const stt = await this.deps.speechToText(seg.blob, from, settings);
+    const sttMs = Date.now() - tStt;
     if (!stt.success) {
       this.patch({ error: stt.error || 'No se pudo transcribir el audio.' });
       return;
@@ -251,7 +346,12 @@ export class InterviewSession {
     }
 
     const line = this.addLine(side, stt.text);
+    this.arrivedAt.set(line.id, arrived);
+    this.mergeTimings(line.id, { waitMs, sttMs });
+
+    const tTr = Date.now();
     const tr = await this.deps.translateText(stt.text, from, to, settings, this.recentOriginals());
+    const translateMs = Date.now() - tTr;
 
     if (!tr.success || !tr.text) {
       this.updateLine(line.id, { status: 'error', error: tr.error || 'No se pudo traducir.' });
@@ -260,16 +360,84 @@ export class InterviewSession {
     }
 
     this.updateLine(line.id, { translation: tr.text, status: 'ready' });
+    this.mergeTimings(line.id, { translateMs });
 
-    if (side === 'me' && this.snapshot.autoSpeak && this.snapshot.canSpeak) {
-      await this.speak(line.id);
+    if (side !== 'me' || !this.snapshot.canSpeak) return;
+    if (this.snapshot.autoSpeak) {
+      await this.speak(line.id, { auto: true });
+    } else if (this.snapshot.prefetch) {
+      await this.prefetchVoice(line.id); // el audio queda listo: pulsar 🔊 suena al instante
     }
   }
 
   // ---------------------------------------------------------------- voz
 
+  /**
+   * Genera la voz de una frase en trozos (frases) con hasta TTS_CONCURRENCY peticiones a la vez.
+   * `onChunk` se llama EN ORDEN según va estando listo cada trozo, así el primero puede sonar enseguida.
+   */
+  private async synthesizeChunks(
+    text: string,
+    onChunk: (audio: Blob, index: number) => void
+  ): Promise<{ blobs: Blob[]; error?: string; firstMs?: number }> {
+    const settings = this.getSettings();
+    const chunks = splitForSpeech(text);
+    if (chunks.length === 0) return { blobs: [] };
+
+    const t0 = Date.now();
+    let running = 0;
+    const waiters: Array<() => void> = [];
+    const acquire = async () => {
+      if (running >= TTS_CONCURRENCY) await new Promise<void>((r) => waiters.push(r));
+      running++;
+    };
+    const release = () => {
+      running--;
+      waiters.shift()?.();
+    };
+
+    const tasks = chunks.map(async (chunk, i) => {
+      await acquire();
+      try {
+        return await this.deps.synthesizeSpeech(chunk, settings, {
+          previousText: chunks[i - 1],
+          nextText: chunks[i + 1],
+          lowLatency: true
+        });
+      } finally {
+        release();
+      }
+    });
+
+    const blobs: Blob[] = [];
+    let firstMs: number | undefined;
+    for (let i = 0; i < tasks.length; i++) {
+      const res = await tasks[i];
+      if (!res.audio) {
+        // Los trozos ya entregados quedan; se avisa del error y se descartan los siguientes.
+        return { blobs, error: res.error || 'No se pudo generar la voz.', firstMs };
+      }
+      if (i === 0) firstMs = Date.now() - t0;
+      blobs.push(res.audio);
+      onChunk(res.audio, i);
+    }
+    return { blobs, firstMs };
+  }
+
+  /** Genera la voz de una frase SIN reproducirla (modo manual con «voz de antemano»). */
+  private async prefetchVoice(lineId: string): Promise<void> {
+    const line = this.snapshot.lines.find((l) => l.id === lineId);
+    if (!line || !line.translation || this.audioCache.has(lineId)) return;
+    const res = await this.synthesizeChunks(line.translation, () => {});
+    if (res.error || res.blobs.length === 0) return; // no es grave: al pulsar 🔊 se intentará de nuevo
+    this.audioCache.set(lineId, res.blobs);
+    this.patch({ charsSpoken: this.snapshot.charsSpoken + line.translation.length });
+    this.updateLine(lineId, { audioReady: true });
+    this.mergeTimings(lineId, { ttsMs: res.firstMs });
+  }
+
   /** Dice la traducción de una de tus frases con tu voz clonada. */
-  public async speak(lineId: string): Promise<void> {
+  public async speak(lineId: string, opts: { auto?: boolean } = {}): Promise<void> {
     const line = this.snapshot.lines.find((l) => l.id === lineId);
     if (!line || line.side !== 'me' || !line.translation) return;
     if (!this.snapshot.canSpeak) {
@@ -278,16 +446,44 @@ export class InterviewSession {
     }
 
     this.updateLine(lineId, { speaking: true });
-    const res = await this.deps.synthesizeSpeech(line.translation, this.getSettings());
-    if (!res.audio) {
-      this.updateLine(lineId, { speaking: false, error: res.error });
-      this.patch({ error: res.error || 'No se pudo generar la voz.' });
+    const startedSpeaking = () => {
+      this.spoken = pruneSpoken([...this.spoken, { text: line.translation, at: Date.now() }]);
+    };
+
+    // 1) Voz ya preparada: suena al instante.
+    const cached = this.audioCache.get(lineId);
+    if (cached) {
+      cached.forEach((b) => this.player.enqueue(b));
+      startedSpeaking();
+      this.updateLine(lineId, { speaking: false, spoken: true });
+      const arrived = this.arrivedAt.get(lineId);
+      if (opts.auto && arrived) this.mergeTimings(lineId, { totalMs: Date.now() - arrived });
       return;
     }
 
-    this.player.enqueue(res.audio);
-    this.spoken = pruneSpoken([...this.spoken, { text: line.translation, at: Date.now() }]);
-    this.updateLine(lineId, { speaking: false, spoken: true });
+    // 2) Generar por trozos; el primero suena en cuanto esté listo.
+    let first = true;
+    const tTts = Date.now();
+    const res = await this.synthesizeChunks(line.translation, (audio) => {
+      this.player.enqueue(audio);
+      if (first) {
+        first = false;
+        startedSpeaking();
+        const arrived = this.arrivedAt.get(lineId);
+        this.mergeTimings(lineId, {
+          ttsMs: Date.now() - tTts,
+          ...(opts.auto && arrived ? { totalMs: Date.now() - arrived } : {})
+        });
+      }
+    });
+
+    if (res.blobs.length > 0) this.audioCache.set(lineId, res.blobs); // repetir 🔊 no vuelve a gastar
+    if (res.error) {
+      this.updateLine(lineId, { speaking: false, spoken: res.blobs.length > 0, error: res.error });
+      this.patch({ error: res.error });
+      return;
+    }
+    this.updateLine(lineId, { speaking: false, spoken: true, audioReady: true });
     this.patch({ charsSpoken: this.snapshot.charsSpoken + line.translation.length });
   }
 

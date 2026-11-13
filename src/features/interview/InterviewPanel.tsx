@@ -13,7 +13,8 @@ import {
   Megaphone,
   Loader2,
   Settings as SettingsIcon,
-  Mic
+  Mic,
+  Zap
 } from 'lucide-react';
 import { AppSettings } from '../../types';
 import { useInterviewSession } from './useInterviewSession';
@@ -22,6 +23,8 @@ import { languageName } from './languages';
 import { isAiReady } from '../ai/status';
 import { AudioSetup } from './AudioSetup';
 import { useVirtualMicSetup } from './useVirtualMicSetup';
+import { meetingCapture } from '../meeting/capture/meetingCapture';
+import { fmtSeconds, speedTips, SPEED_PRESETS, SpeedPreset } from './speedTips';
 
 interface InterviewPanelProps {
   settings: AppSettings;
@@ -55,6 +58,19 @@ const Check: React.FC<{ ok: boolean; label: string; hint?: string }> = ({ ok, la
   </div>
 );
 
+/** «transcribir 0,5 s · traducir 1,1 s · voz 0,8 s · total 2,4 s»: dónde se fue el tiempo de esta frase. */
+const Timings: React.FC<{ line: InterviewLine; tone: string }> = ({ line, tone }) => {
+  const t = line.timings;
+  if (!t || t.translateMs === undefined) return null;
+  const parts = [
+    t.sttMs !== undefined ? `transcribir ${fmtSeconds(t.sttMs)}` : '',
+    `traducir ${fmtSeconds(t.translateMs)}`,
+    t.ttsMs !== undefined ? `voz ${fmtSeconds(t.ttsMs)}` : '',
+    t.totalMs !== undefined ? `total ${fmtSeconds(t.totalMs)}` : ''
+  ].filter(Boolean);
+  return <div className={`text-[10px] mt-1 ${tone}`}>⏱ {parts.join(' · ')}</div>;
+};
+
 const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (id: string) => void }> = ({
   line,
   canSpeak,
@@ -74,6 +90,7 @@ const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (i
           )}
           <div className="text-[11px] text-slate-500 italic mt-1">{line.original}</div>
           {line.status === 'error' && <div className="text-[11px] text-red-400 mt-1">{line.error}</div>}
+          <Timings line={line} tone="text-slate-600" />
         </div>
       </div>
     );
@@ -106,6 +123,8 @@ const LineBubble: React.FC<{ line: InterviewLine; canSpeak: boolean; onSpeak: (i
             </div>
           )}
           {line.spoken && <div className="text-[10px] text-emerald-200 mt-1">✓ dicho con tu voz</div>}
+          {!line.spoken && line.audioReady && <div className="text-[10px] text-amber-200 mt-1">⚡ voz lista: suena al instante</div>}
+          <Timings line={line} tone="text-indigo-200/70" />
         </div>
       </div>
     </div>
@@ -116,9 +135,23 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
   // Dispositivos de audio (autodetectados y recordados): lógica compartida con «Nota de voz».
   const setup = useVirtualMicSetup(settings);
   const [autoSpeak, setAutoSpeak] = useState(true);
+  const [speed, setSpeed] = useState<SpeedPreset>(() => {
+    const saved = localStorage.getItem('stickyflow.interview.speed');
+    return saved && saved in SPEED_PRESETS ? (saved as SpeedPreset) : 'normal';
+  });
+  const [prefetch, setPrefetch] = useState(() => localStorage.getItem('stickyflow.interview.prefetch') === '1');
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
   const { session, snapshot } = useInterviewSession(setup.effectiveSettings);
+
+  // «Iniciar» instantáneo: Windows tarda ~1 s en abrir el audio del sistema, así que se deja LISTO al abrir la
+  // pantalla (y de nuevo al detener o cambiar de micrófono). Se libera al salir.
+  useEffect(() => {
+    if (snapshot.running || snapshot.starting) return;
+    void meetingCapture.prepare({ micDeviceId: setup.micId || undefined, systemDeviceId: setup.theirSourceId || undefined });
+  }, [setup.micId, setup.theirSourceId, snapshot.running, snapshot.starting]);
+
+  useEffect(() => () => meetingCapture.release(), []);
 
   useEffect(() => {
     if (!snapshot.running) return;
@@ -145,11 +178,22 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
   const mine = settings.interviewMyLang || 'es';
   const theirs = settings.interviewTheirLang || 'en';
 
-  const handleStart = () => session.start({ micDeviceId: setup.micId, autoSpeak });
+  const handleStart = () =>
+    session.start({ micDeviceId: setup.micId, autoSpeak, prefetch, silenceMs: SPEED_PRESETS[speed].silenceMs });
   const handleToggleAutoSpeak = () => {
     const next = !autoSpeak;
     setAutoSpeak(next);
     session.setAutoSpeak(next && snapshot.canSpeak);
+  };
+  const tips = speedTips(snapshot.stats, settings);
+  const handleSpeed = (value: SpeedPreset) => {
+    setSpeed(value);
+    localStorage.setItem('stickyflow.interview.speed', value);
+  };
+  const handlePrefetch = (value: boolean) => {
+    setPrefetch(value);
+    localStorage.setItem('stickyflow.interview.prefetch', value ? '1' : '0');
+    session.setPrefetch(value && snapshot.canSpeak);
   };
   const handleDisclosure = () => session.sayText(DISCLOSURE[mine] ?? DISCLOSURE.en);
 
@@ -308,6 +352,22 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
         </div>
       )}
 
+      {/* Velocidad: dónde se va el tiempo y cómo bajarlo */}
+      {(tips.length > 0 || snapshot.stats.count >= 2) && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] text-slate-300 shrink-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-3 text-slate-400">
+            <span className="font-semibold text-slate-200 flex items-center gap-1"><Zap size={12} className="text-amber-400" /> Velocidad (promedio de tus frases)</span>
+            <span>transcribir {fmtSeconds(snapshot.stats.sttMs)}</span>
+            <span>traducir {fmtSeconds(snapshot.stats.translateMs)}</span>
+            {snapshot.stats.ttsMs > 0 && <span>voz {fmtSeconds(snapshot.stats.ttsMs)}</span>}
+            {snapshot.stats.totalMs > 0 && <span className="text-slate-200">total {fmtSeconds(snapshot.stats.totalMs)}</span>}
+          </div>
+          {tips.map((t) => (
+            <div key={t} className="text-amber-200/90">💡 {t}</div>
+          ))}
+        </div>
+      )}
+
       {/* Controles */}
       <div className="px-4 py-3 border-t border-slate-800 bg-slate-950 flex items-center justify-between gap-3 shrink-0">
         <div className="flex items-center gap-2">
@@ -315,11 +375,12 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
             <button
               type="button"
               onClick={handleStart}
-              disabled={!canStart}
+              disabled={!canStart || snapshot.starting}
               title={canStart ? '' : 'Configura las claves en Ajustes'}
-              className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 cursor-pointer"
+              className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm flex items-center gap-2 cursor-pointer"
             >
-              <Play size={15} /> Iniciar
+              {snapshot.starting ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
+              {snapshot.starting ? 'Conectando…' : 'Iniciar'}
             </button>
           ) : (
             <button
@@ -348,6 +409,38 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, onBack
           >
             <Megaphone size={14} /> Avisar que uso traducción
           </button>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-slate-400">
+          <label className="flex items-center gap-1.5" title="Cuánto silencio espera antes de dar por terminada tu frase">
+            Respuesta
+            <select
+              value={speed}
+              onChange={(e) => handleSpeed(e.target.value as SpeedPreset)}
+              disabled={snapshot.running || snapshot.starting}
+              className="bg-slate-800 border border-slate-700 rounded-md px-1.5 py-1 text-slate-200 disabled:opacity-60"
+            >
+              {(Object.keys(SPEED_PRESETS) as SpeedPreset[]).map((k) => (
+                <option key={k} value={k}>
+                  {SPEED_PRESETS[k].label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!autoSpeak && (
+            <label
+              className="flex items-center gap-1 cursor-pointer"
+              title="En modo manual: genera la voz en cuanto se traduce, así 🔊 suena al instante. Gasta caracteres aunque no la uses."
+            >
+              <input
+                type="checkbox"
+                checked={prefetch}
+                onChange={(e) => handlePrefetch(e.target.checked)}
+                disabled={snapshot.running || snapshot.starting}
+                className="accent-amber-500"
+              />
+              ⚡ Voz lista de antemano
+            </label>
+          )}
         </div>
         <div className="text-[11px] text-slate-500 text-right">
           {snapshot.speaking && <div className="text-sky-400">🔊 Hablando con tu voz…</div>}

@@ -4,6 +4,8 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const secureSettings = require('./secureSettings');
 const trayModule = require('./tray');
+const shortcutsModule = require('./shortcuts');
+const shortcutLinks = require('./shortcutLinks');
 
 let mainWindow = null;
 let isAlwaysOnTop = true;
@@ -777,6 +779,37 @@ function openMeetingWindow(noteId, view) {
   return meetingWindow;
 }
 
+// ---- Accesos rápidos: argumento --view, atajos globales, inicio con Windows ----
+/** Lee `--view=meeting|interview|voicenote` de los argumentos (solo valores conocidos). */
+function viewFromArgv(argv) {
+  const arg = (argv || []).find((a) => typeof a === 'string' && a.startsWith('--view='));
+  const view = arg ? arg.slice('--view='.length) : '';
+  return trayModule.VIEWS.includes(view) ? view : null;
+}
+
+let shortcutStatus = { registered: [], failed: [] };
+
+/** Aplica los ajustes de acceso rápido: atajos globales e inicio con Windows. */
+function applyQuickAccess(settings) {
+  if (settings && settings.quickShortcuts === false) {
+    shortcutsModule.unregisterShortcuts();
+    shortcutStatus = { registered: [], failed: [] };
+  } else {
+    shortcutStatus = shortcutsModule.registerShortcuts((view) => openMeetingWindow('', view));
+    if (shortcutStatus.failed.length > 0) {
+      console.warn('Atajos ocupados por otra aplicación:', shortcutStatus.failed.join(', '));
+    }
+  }
+  // Iniciar con Windows solo tiene sentido en la versión instalada (en desarrollo apuntaría a electron.exe sin la app).
+  if (app.isPackaged) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: Boolean(settings && settings.startWithWindows) });
+    } catch (err) {
+      console.error('No se pudo configurar el inicio con Windows:', err);
+    }
+  }
+}
+
 // ---- Icono de la bandeja del sistema (acceso rápido) ----
 function trayHandlers() {
   return {
@@ -791,6 +824,7 @@ function trayHandlers() {
     },
     openView: (view) => openMeetingWindow('', view),
     openSettings: () => openSettingsWindow(),
+    createShortcuts: () => createDesktopShortcuts(),
     quit: () => {
       trayModule.hideTray();
       app.quit();
@@ -806,6 +840,18 @@ function applyTray(settings) {
   } else {
     trayModule.showTray(trayHandlers());
   }
+}
+
+/** Crea en el escritorio los accesos directos (Reunión, Entrevista, Nota de voz), listos para anclar a la barra. */
+function createDesktopShortcuts() {
+  const dir = app.getPath('desktop');
+  const result = shortcutLinks.createShortcutLinks({
+    exePath: process.execPath,
+    appPath: app.getAppPath(),
+    isPackaged: app.isPackaged,
+    dir
+  });
+  return { ...result, dir };
 }
 
 function createDockWindow() {
@@ -1123,7 +1169,13 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // Un acceso directo («StickyFlow Entrevista») lanzado con la app ya abierta: se abre esa vista en la existente.
+    const requestedView = viewFromArgv(argv);
+    if (requestedView) {
+      openMeetingWindow('', requestedView);
+      return;
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -1312,7 +1364,8 @@ if (!gotTheLock) {
       // Support capturing system loopback audio seamlessly
       if (session.defaultSession.setDisplayMediaRequestHandler) {
         session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-          desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+          // Sin miniaturas ni iconos: solo se necesita el audio, y generarlas hacía lento el arranque (~1 s).
+          desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false }).then((sources) => {
             if (sources && sources.length > 0) {
               callback({ video: sources[0], audio: 'loopback' });
             } else {
@@ -1350,8 +1403,15 @@ if (!gotTheLock) {
       }
     });
 
-    applyTray(loadSettingsDirect());
+    const startupSettings = loadSettingsDirect();
+    applyTray(startupSettings);
+    applyQuickAccess(startupSettings);
     app.on('before-quit', () => trayModule.hideTray());
+    app.on('will-quit', () => shortcutsModule.unregisterShortcuts());
+
+    // Lanzada desde un acceso directo con --view=...: se abre directo esa vista.
+    const startView = viewFromArgv(process.argv);
+    if (startView) openMeetingWindow('', startView);
 
     app.on('activate', () => {
       if (!dockWindow || dockWindow.isDestroyed()) {
@@ -1827,6 +1887,7 @@ ipcMain.handle('settings:save', (_event, settings) => {
     const filePath = getSettingsFilePath();
     secureSettings.writeSettingsFile(filePath, settings);
     applyTray(settings);
+    applyQuickAccess(settings);
     if (typeof settings.alwaysOnTop === 'boolean' && mainWindow) {
       isAlwaysOnTop = settings.alwaysOnTop;
       mainWindow.setAlwaysOnTop(isAlwaysOnTop, 'floating', 1);
@@ -1878,13 +1939,24 @@ ipcMain.handle('notes:exportMarkdown', (_event, note) => {
 
 ipcMain.handle('system-audio:getSources', async () => {
   try {
-    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
     return sources.map(s => ({ id: s.id, name: s.name }));
   } catch (e) {
     console.error('Error getting desktop sources:', e);
     return [];
   }
 });
+
+ipcMain.handle('system:create-shortcuts', () => createDesktopShortcuts());
+
+// Abre la configuración de la barra de tareas de Windows (para mostrar siempre el icono de StickyFlow).
+ipcMain.handle('system:open-taskbar-settings', () => {
+  if (process.platform !== 'win32') return false;
+  shell.openExternal('ms-settings:taskbar');
+  return true;
+});
+
+ipcMain.handle('system:shortcut-status', () => shortcutStatus);
 
 // Abre el panel de Sonido de Windows (para renombrar el micrófono virtual, ver niveles, etc.).
 // Solo acepta dos valores fijos: el renderer nunca puede pasar comandos ni argumentos propios.

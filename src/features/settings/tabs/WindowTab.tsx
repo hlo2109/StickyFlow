@@ -2,6 +2,7 @@ import React from 'react';
 import { Sliders, FolderOpen, ExternalLink, StickyNote } from 'lucide-react';
 import { AppSettings } from '../../../types';
 import { SettingsTabProps } from '../types';
+import { QuickAccessSection } from './QuickAccessSection';
 
 /** Comportamiento de la ventana, opacidad y dock de separadores. */
 export const WindowTab: React.FC<SettingsTabProps> = ({ formData, setFormData, onOpenNotesFolder }) => {
@@ -33,6 +34,8 @@ export const WindowTab: React.FC<SettingsTabProps> = ({ formData, setFormData, o
             className="w-4 h-4 rounded text-emerald-600 accent-emerald-600 cursor-pointer shrink-0"
           />
         </div>
+
+        <QuickAccessSection formData={formData} setFormData={setFormData} />
 
         <div className="flex items-center justify-between">
           <div>

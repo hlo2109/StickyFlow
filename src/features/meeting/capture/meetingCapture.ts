@@ -5,16 +5,20 @@
  *   - 'system': lo que suena en el PC (los demás participantes), vía loopback de Windows.
  *   - 'mic'   : tu micrófono, con cancelación de eco y reducción de ruido.
  *
- * Antes ambas se mezclaban en una sola pista sin cancelación de eco: se oía doble y no se
- * podía saber quién dijo qué. Separadas, cada frase llega etiquetada y se transcribe en
- * su propio idioma (por ejemplo: tú en español, ellos en inglés).
+ * Separadas, cada frase llega etiquetada y se transcribe en su propio idioma
+ * (por ejemplo: tú en español, ellos en inglés).
+ *
+ * RAPIDEZ: arrancar la captura del audio del sistema tarda ~1 s en Windows (2 s en frío) y no se puede
+ * acelerar, así que `prepare()` la deja LISTA en cuanto se abre la pantalla. Al pulsar «Iniciar»
+ * solo se arrancan los procesadores de audio (instantáneo). Además, sistema y micrófono se piden en
+ * paralelo (antes uno esperaba al otro).
  */
 
 import { SpeechSegmenter, MeetingSegment } from './speechSegmenter';
 
 export type { MeetingSegment, AudioSource } from './speechSegmenter';
 
-export interface StartCaptureOptions {
+export interface PrepareOptions {
   micDeviceId?: string;
   /**
    * Fuente del audio de los demás. Vacío = audio del sistema (loopback: captura TODO lo que suena, incluida
@@ -22,8 +26,64 @@ export interface StartCaptureOptions {
    * se captura SOLO ese dispositivo, sin mezclar nada más.
    */
   systemDeviceId?: string;
+}
+
+export interface StartCaptureOptions extends PrepareOptions {
   /** Se llama cada vez que se completa una frase. Si no se pasa, igual se acumulan en getSegments(). */
   onSegment?: (segment: MeetingSegment) => void;
+  /** Silencio (ms) que cierra una frase. Menos = responde antes pero puede partir frases con pausas. */
+  silenceMs?: number;
+}
+
+type Prepared = { key: string; stream: MediaStream };
+
+const systemKey = (o: PrepareOptions) => o.systemDeviceId || 'loopback';
+const micKey = (o: PrepareOptions) => o.micDeviceId || 'default';
+const isLive = (s: MediaStream) => s.getTracks().length > 0 && s.getTracks().every((t) => t.readyState === 'live');
+
+async function acquireSystem(o: PrepareOptions): Promise<MediaStream | null> {
+  try {
+    if (o.systemDeviceId) {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: o.systemDeviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        video: false
+      });
+    }
+    // Electron exige pedir también el video en el loopback; se descarta enseguida.
+    const display = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        // @ts-ignore: opciones propias de Chromium
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false
+      }
+    });
+    display.getVideoTracks().forEach((t) => t.stop());
+    const audioTracks = display.getAudioTracks();
+    return audioTracks.length > 0 ? new MediaStream(audioTracks) : null;
+  } catch (e) {
+    console.warn('[MeetingCapture] sin audio del sistema:', e);
+    return null;
+  }
+}
+
+async function acquireMic(o: PrepareOptions): Promise<MediaStream | null> {
+  try {
+    // Micrófono con procesado de voz para evitar eco y ruido de fondo.
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...(o.micDeviceId ? { deviceId: { exact: o.micDeviceId } } : {}),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
+  } catch (e) {
+    console.warn('[MeetingCapture] sin micrófono:', e);
+    return null;
+  }
 }
 
 export class MeetingCapture {
@@ -33,8 +93,18 @@ export class MeetingCapture {
   private segments: MeetingSegment[] = [];
   private capturing = false;
 
+  private prepared: { system?: Prepared; mic?: Prepared } = {};
+  /** Cadena de preparaciones: si se pide varias seguidas (p. ej. cambiar de micrófono), se hacen de una en una. */
+  private preparing: Promise<void> = Promise.resolve();
+
   public getIsCapturing(): boolean {
     return this.capturing;
+  }
+
+  /** ¿Hay una captura del sistema ya lista para arrancar al instante? */
+  public isPrepared(o: PrepareOptions = {}): boolean {
+    const sys = this.prepared.system;
+    return Boolean(sys && sys.key === systemKey(o) && isLive(sys.stream));
   }
 
   /** Todas las frases capturadas hasta ahora, en orden cronológico. */
@@ -42,13 +112,80 @@ export class MeetingCapture {
     return [...this.segments].sort((a, b) => a.startedAt - b.startedAt);
   }
 
+  // ------------------------------------------------------------------ preparación
+
+  /**
+   * Deja listas las entradas de audio (sistema y micrófono) sin empezar a procesar nada.
+   * Es seguro llamarla varias veces: reutiliza lo que ya está listo y solo pide lo que falte o cambió.
+   */
+  public prepare(o: PrepareOptions = {}): Promise<void> {
+    this.preparing = this.preparing.then(() => this.doPrepare(o)).catch(() => {});
+    return this.preparing;
+  }
+
+  private async doPrepare(o: PrepareOptions): Promise<void> {
+    if (this.capturing) return;
+    const tasks: Promise<void>[] = [];
+
+    const sys = this.prepared.system;
+    if (!(sys && sys.key === systemKey(o) && isLive(sys.stream))) {
+      this.dropPrepared('system');
+      tasks.push(
+        acquireSystem(o).then((stream) => {
+          if (stream) this.prepared.system = { key: systemKey(o), stream };
+        })
+      );
+    }
+
+    const mic = this.prepared.mic;
+    if (!(mic && mic.key === micKey(o) && isLive(mic.stream))) {
+      this.dropPrepared('mic');
+      tasks.push(
+        acquireMic(o).then((stream) => {
+          if (stream) this.prepared.mic = { key: micKey(o), stream };
+        })
+      );
+    }
+
+    await Promise.all(tasks);
+  }
+
+  private dropPrepared(kind: 'system' | 'mic'): void {
+    this.prepared[kind]?.stream.getTracks().forEach((t) => t.stop());
+    delete this.prepared[kind];
+  }
+
+  /** Libera lo preparado (al cerrar la pantalla): se apaga la captura y el micrófono. */
+  public release(): void {
+    this.preparing = this.preparing.then(() => {
+      this.dropPrepared('system');
+      this.dropPrepared('mic');
+    });
+  }
+
+  /** Usa lo preparado si coincide; si no, lo pide ahora. */
+  private async take(kind: 'system' | 'mic', o: PrepareOptions): Promise<MediaStream | null> {
+    const p = this.prepared[kind];
+    const key = kind === 'system' ? systemKey(o) : micKey(o);
+    if (p && p.key === key && isLive(p.stream)) {
+      delete this.prepared[kind]; // pasa a ser de la captura en curso
+      return p.stream;
+    }
+    this.dropPrepared(kind);
+    return kind === 'system' ? acquireSystem(o) : acquireMic(o);
+  }
+
+  // ------------------------------------------------------------------ captura
+
   public async startCapture(
     options: StartCaptureOptions = {}
-  ): Promise<{ success: boolean; error?: string; micAvailable?: boolean; systemAvailable?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; micAvailable?: boolean; systemAvailable?: boolean; preparedAhead?: boolean }> {
     if (this.capturing) return { success: true };
 
     try {
       this.segments = [];
+      await this.preparing; // por si hay una preparación en curso, se aprovecha en vez de pedirla otra vez
+      const preparedAhead = this.isPrepared(options);
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.audioCtx = new AudioCtx();
@@ -58,87 +195,24 @@ export class MeetingCapture {
         options.onSegment?.(segment);
       };
 
-      // 1. Audio de los demás: dispositivo aislado (si se eligió) o audio del sistema (loopback).
-      //    Electron exige pedir también el video en el loopback; se descarta enseguida.
-      let systemAvailable = false;
-      try {
-        if (options.systemDeviceId) {
-          const isolated = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: { exact: options.systemDeviceId },
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false
-            },
-            video: false
-          });
-          this.streams.push(isolated);
-          this.segmenters.push(
-            new SpeechSegmenter({
-              source: 'system',
-              audioContext: this.audioCtx,
-              stream: isolated,
-              onSegment: handleSegment
-            })
-          );
-          systemAvailable = true;
-        } else {
-        const display = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: {
-            // @ts-ignore: opciones propias de Chromium
-            autoGainControl: false,
-            echoCancellation: false,
-            noiseSuppression: false
-          }
-        });
-        display.getVideoTracks().forEach((t) => t.stop());
-        const audioTracks = display.getAudioTracks();
-        if (audioTracks.length > 0) {
-          const sysStream = new MediaStream(audioTracks);
-          this.streams.push(sysStream);
-          this.segmenters.push(
-            new SpeechSegmenter({
-              source: 'system',
-              audioContext: this.audioCtx,
-              stream: sysStream,
-              onSegment: handleSegment
-            })
-          );
-          systemAvailable = true;
-        }
-        }
-      } catch (e) {
-        console.warn('[MeetingCapture] sin audio del sistema:', e);
-      }
+      // Sistema y micrófono EN PARALELO (antes uno esperaba al otro).
+      const [system, mic] = await Promise.all([this.take('system', options), this.take('mic', options)]);
 
-      // 2. Micrófono, con procesado de voz para evitar eco y ruido de fondo.
-      let micAvailable = false;
-      try {
-        const mic = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            ...(options.micDeviceId ? { deviceId: { exact: options.micDeviceId } } : {}),
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          },
-          video: false
-        });
-        this.streams.push(mic);
+      for (const [source, stream] of [['system', system], ['mic', mic]] as const) {
+        if (!stream) continue;
+        this.streams.push(stream);
         this.segmenters.push(
           new SpeechSegmenter({
-            source: 'mic',
+            source,
             audioContext: this.audioCtx,
-            stream: mic,
-            onSegment: handleSegment
+            stream,
+            onSegment: handleSegment,
+            ...(options.silenceMs ? { silenceMs: options.silenceMs } : {})
           })
         );
-        micAvailable = true;
-      } catch (e) {
-        console.warn('[MeetingCapture] sin micrófono:', e);
       }
 
-      if (!systemAvailable && !micAvailable) {
+      if (!system && !mic) {
         await this.cleanup();
         return {
           success: false,
@@ -149,7 +223,7 @@ export class MeetingCapture {
 
       this.capturing = true;
       this.segmenters.forEach((s) => s.start());
-      return { success: true, micAvailable, systemAvailable };
+      return { success: true, micAvailable: Boolean(mic), systemAvailable: Boolean(system), preparedAhead };
     } catch (err: any) {
       await this.cleanup();
       return { success: false, error: err?.message || 'No se pudo iniciar la captura de audio.' };

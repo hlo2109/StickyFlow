@@ -43,34 +43,55 @@ export async function listVoices(apiKey: string): Promise<{ voices: ElevenVoice[
   }
 }
 
+export interface SynthOptions {
+  /** Texto que viene ANTES/DESPUÉS (cuando una frase larga se divide en trozos): mantiene la entonación entre ellos */
+  previousText?: string;
+  nextText?: string;
+  /** Audio más ligero (64 kbps): baja unos cientos de ms en conversación en vivo. Para guardar/adjuntar, mejor la calidad normal. */
+  lowLatency?: boolean;
+}
+
 /** Convierte texto en audio con tu voz clonada. Devuelve un MP3. */
 export async function synthesizeSpeech(
   text: string,
-  settings: AppSettings
+  settings: AppSettings,
+  options: SynthOptions = {}
 ): Promise<{ audio?: Blob; error?: string }> {
   const apiKey = settings.elevenLabsApiKey?.trim();
   const voiceId = settings.elevenLabsVoiceId?.trim();
   if (!apiKey) return { error: 'Falta la API Key de ElevenLabs (Ajustes → Entrevista).' };
   if (!voiceId) return { error: 'Falta elegir tu voz de ElevenLabs (Ajustes → Entrevista).' };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
+  const format = options.lowLatency ? 'mp3_44100_64' : 'mp3_44100_128';
+  const request = async (withContext: boolean): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
+    try {
+      return await fetch(`${API}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${format}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+        body: JSON.stringify({
+          text,
+          model_id: settings.elevenLabsModel || 'eleven_flash_v2_5',
+          voice_settings: { stability: 0.5, similarity_boost: 0.8 },
+          ...(withContext && options.previousText ? { previous_text: options.previousText } : {}),
+          ...(withContext && options.nextText ? { next_text: options.nextText } : {})
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   try {
-    const resp = await fetch(`${API}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`, {
-      method: 'POST',
-      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-      body: JSON.stringify({
-        text,
-        model_id: settings.elevenLabsModel || 'eleven_flash_v2_5',
-        voice_settings: { stability: 0.5, similarity_boost: 0.8 }
-      }),
-      signal: controller.signal
-    });
+    const hasContext = Boolean(options.previousText || options.nextText);
+    let resp = await request(hasContext);
+    // Si el modelo no admite el contexto, se reintenta sin él (solo perdería un poco de continuidad).
+    if (resp.status === 422 && hasContext) resp = await request(false);
     if (!resp.ok) return { error: errorFromStatus(resp.status) };
     return { audio: await resp.blob() };
   } catch (err: any) {
     return { error: err?.name === 'AbortError' ? 'ElevenLabs tardó demasiado en responder.' : `Error de conexión con ElevenLabs: ${err?.message}` };
-  } finally {
-    clearTimeout(timer);
   }
 }

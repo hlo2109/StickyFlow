@@ -100,6 +100,8 @@ export interface AppSettings {
   defaultColor: NoteColor;
   opacity: number;
   notesFolderPath?: string;
+  quickShortcuts?: boolean; // Atajos globales Ctrl+Alt+R / E / V (por defecto sí)
+  startWithWindows?: boolean; // Iniciar con Windows (solo versión instalada)
   showTrayIcon?: boolean; // Icono en la bandeja del sistema con acceso rápido (por defecto sí)
   startDockOnly?: boolean; // When PC/app starts, only show the small notebook dock tabs (default true)
 
@@ -165,6 +167,12 @@ export interface ElectronAPI {
   writeClipboard: (text: string) => Promise<boolean>;
   /** Abre el panel de Sonido de Windows en la pestaña de Reproducción o de Grabación */
   openSoundPanel?: (tab: 'playback' | 'recording') => Promise<boolean>;
+  /** Crea en el escritorio accesos directos a Reunión, Entrevista y Nota de voz (para anclar a la barra de tareas) */
+  createShortcuts?: () => Promise<{ created: string[]; failed: string[]; dir: string }>;
+  /** Abre la configuración de la barra de tareas de Windows (para mostrar siempre el icono de la bandeja) */
+  openTaskbarSettings?: () => Promise<boolean>;
+  /** Qué atajos globales quedaron registrados y cuáles estaban ocupados por otra app */
+  getShortcutStatus?: () => Promise<{ registered: string[]; failed: string[] }>;
   onAlwaysOnTopChanged: (callback: (val: boolean) => void) => void;
   getDesktopSources?: () => Promise<Array<{ id: string; name: string }>>;
 
