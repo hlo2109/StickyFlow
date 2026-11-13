@@ -18,6 +18,12 @@ export async function buildApp({ config, db, mailer, logger = false }) {
 
   const ctx = { config, db, mailer };
 
+  // JSON con cuerpo vacío (p. ej. DELETE con Content-Type) se acepta como {}; JSON mal formado da 400
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+    if (!body) return done(null, {});
+    try { done(null, JSON.parse(body)); } catch { const e = new Error('JSON no válido'); e.statusCode = 400; done(e); }
+  });
+
   // Cabeceras de seguridad (la página de administración no carga nada externo)
   app.addHook('onSend', async (_req, reply) => {
     reply.header('X-Content-Type-Options', 'nosniff');

@@ -213,6 +213,16 @@ test('notas: crear, listar por fecha, conflicto, borrado lógico y aislamiento e
   assert.equal((await call('PUT', '/api/notes/n3', { token: A, body: { title: 'ok', color: 'rojo-raro' } })).body.color, 'yellow');
 });
 
+test('JSON: cuerpo vacío con Content-Type se acepta y el JSON roto da 400', async () => {
+  const { app, call } = await make();
+  const t = (await reg(call, 'admin@test.com')).body.token;
+  await call('PUT', '/api/notes/n1', { token: t, body: { title: 'x', content: '<p>x</p>', markdownContent: 'x' } });
+  const del = await app.inject({ method: 'DELETE', url: '/api/notes/n1', headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' } });
+  assert.equal(del.statusCode, 200);
+  const bad = await app.inject({ method: 'POST', url: '/api/auth/login', payload: '{roto', headers: { 'content-type': 'application/json' } });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('páginas: salud, cabeceras de seguridad y rutas de enlaces', async () => {
   const { app } = await make();
   const health = await app.inject({ method: 'GET', url: '/health' });

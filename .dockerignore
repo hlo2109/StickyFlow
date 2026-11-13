@@ -2,13 +2,13 @@
 node_modules
 **/node_modules
 dist
+**/dist
 release
 build
 mis_notas
 docs
 assets
 electron
-src
 *.exe
 *.log
 .env
