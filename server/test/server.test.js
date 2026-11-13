@@ -275,6 +275,17 @@ test('migración: una base antigua (sin seq) conserva las notas y se pueden sinc
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('persistencia: detecta si /data es un volumen y lo expone en /api/info', async () => {
+  const { isPersistent } = await import('../src/persistence.js');
+  const fake = (docker, dataDev, rootDev) => ({ existsSync: () => docker, statSync: (p) => ({ dev: p === '/' ? rootDev : dataDev }) });
+  assert.equal(isPersistent('/data', fake(false, 1, 1)), true, 'fuera de Docker siempre');
+  assert.equal(isPersistent('/data', fake(true, 1, 1)), false, 'en Docker, mismo dispositivo que / = sin volumen');
+  assert.equal(isPersistent('/data', fake(true, 2, 1)), true, 'en Docker, dispositivo distinto = volumen');
+  const config = loadConfig({});
+  const app = await buildApp({ config, db: openDb(':memory:'), mailer: fakeMailer(), persistent: false });
+  assert.equal(JSON.parse((await app.inject({ method: 'GET', url: '/api/info' })).body).persistent, false);
+});
+
 test('JSON: cuerpo vacío con Content-Type se acepta y el JSON roto da 400', async () => {
   const { app, call } = await make();
   const t = (await reg(call, 'admin@test.com')).body.token;

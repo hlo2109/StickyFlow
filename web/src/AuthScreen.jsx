@@ -103,6 +103,12 @@ export default function AuthScreen({ info, link, onAuth }) {
       title={first ? 'Bienvenido' : current === 'login' ? 'Entrar' : current === 'register' ? 'Crear cuenta' : 'Recuperar contraseña'}
       subtitle={first ? 'Crea la cuenta de administrador de tu servidor.' : current === 'forgot' ? 'Te enviaremos un enlace al correo.' : 'Tus notas, en tu propio servidor.'}
     >
+      {info.persistent === false && (
+        <p className="notice err">
+          <b>Atención:</b> este servidor no está guardando sus datos en un volumen, así que la cuenta y las notas se borrarán en el próximo despliegue.
+          Monta un volumen en <code>/data</code> (Dokploy → Advanced → Volumes) antes de crear la cuenta.
+        </p>
+      )}
       <form onSubmit={go(async () => {
         if (current === 'forgot') {
           await api('/auth/forgot', 'POST', { email });

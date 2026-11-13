@@ -9,7 +9,7 @@ import { noteRoutes } from './routes/notes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export async function buildApp({ config, db, mailer, logger = false }) {
+export async function buildApp({ config, db, mailer, logger = false, persistent = true }) {
   const app = Fastify({
     logger,
     trustProxy: config.trustProxy,
@@ -63,6 +63,7 @@ export async function buildApp({ config, db, mailer, logger = false }) {
     name: 'StickyFlow Server',
     signupMode: config.signupMode,
     smtp: mailer.enabled,
+    persistent, // false = los datos están en el disco del contenedor y se perderán al redesplegar
     hasUsers: db.prepare('SELECT 1 FROM users LIMIT 1').get() !== undefined,
   }));
 
