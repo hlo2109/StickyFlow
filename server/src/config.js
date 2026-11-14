@@ -15,7 +15,23 @@ export function loadConfig(env = process.env) {
   }
   const publicUrl = (env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/+$/, '');
   const smtpHost = env.SMTP_HOST || '';
+  // PostgreSQL: DATABASE_URL (postgresql://usuario:clave@host:5432/base) o por partes con DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME
+  // (por partes no hace falta escribir la clave con códigos especiales). Sin ninguna de las dos se usa SQLite en DATA_DIR.
+  let postgres = null;
+  if (env.DATABASE_URL) {
+    if (!/^postgres(ql)?:\/\//i.test(env.DATABASE_URL)) throw new Error('DATABASE_URL debe empezar por postgresql://');
+    postgres = { connectionString: env.DATABASE_URL };
+  } else if (env.DB_HOST) {
+    postgres = {
+      host: env.DB_HOST,
+      port: int(env.DB_PORT, 5432),
+      user: env.DB_USER || 'postgres',
+      password: env.DB_PASSWORD || '',
+      database: env.DB_NAME || 'stickyflow',
+    };
+  }
   return {
+    postgres,
     port,
     host: env.HOST || '0.0.0.0',
     publicUrl,

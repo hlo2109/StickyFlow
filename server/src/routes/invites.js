@@ -9,13 +9,13 @@ export async function inviteRoutes(app, { config, db, mailer }) {
     const raw = req.body?.email;
     const email = raw ? normalizeEmail(raw) : null;
     if (email && !isEmail(email)) return reply.code(400).send({ error: 'Correo no válido' });
-    if (email && db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
+    if (email && await db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
       return reply.code(409).send({ error: 'Ese correo ya tiene cuenta' });
     }
     const token = newToken();
     const id = newId();
     const expiresAt = iso(Date.now() + config.inviteTtlDays * DAY);
-    db.prepare('INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?)').run(
+    await db.prepare('INSERT INTO invites (id, token_hash, email, created_by, created_at, expires_at) VALUES (?,?,?,?,?,?)').run(
       id, sha256(token), email, req.user.id, iso(Date.now()), expiresAt,
     );
     const url = `${config.publicUrl}/invite/${token}`;
@@ -32,12 +32,12 @@ export async function inviteRoutes(app, { config, db, mailer }) {
   });
 
   app.get('/api/invites', { preHandler: app.requireAdmin }, async () => ({
-    invites: db
+    invites: (await db
       .prepare(
         `SELECT i.id, i.email, i.created_at, i.expires_at, i.used_at, i.revoked_at, u.email AS used_by_email
          FROM invites i LEFT JOIN users u ON u.id = i.used_by ORDER BY i.created_at DESC LIMIT 200`,
       )
-      .all()
+      .all())
       .map((i) => ({
         id: i.id,
         email: i.email,
@@ -49,14 +49,14 @@ export async function inviteRoutes(app, { config, db, mailer }) {
   }));
 
   app.delete('/api/invites/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
-    const r = db.prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL').run(iso(Date.now()), req.params.id);
+    const r = await db.prepare('UPDATE invites SET revoked_at = ? WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL').run(iso(Date.now()), req.params.id);
     if (!r.changes) return reply.code(404).send({ error: 'Invitación no encontrada o ya usada' });
     return { ok: true };
   });
 
   // Público: comprueba si un enlace sirve (la página lo usa para mostrar el formulario)
   app.get('/api/invites/check/:token', async (req) => {
-    const inv = db.prepare('SELECT email, used_at, revoked_at, expires_at FROM invites WHERE token_hash = ?').get(sha256(req.params.token));
+    const inv = await db.prepare('SELECT email, used_at, revoked_at, expires_at FROM invites WHERE token_hash = ?').get(sha256(req.params.token));
     const valid = Boolean(inv && !inv.used_at && !inv.revoked_at && inv.expires_at > iso(Date.now()));
     return { valid, email: valid ? inv.email : null };
   });

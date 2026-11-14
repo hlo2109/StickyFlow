@@ -1,10 +1,29 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 import { openDb } from '../src/db.js';
 import { buildApp } from '../src/app.js';
 
 const sent = [];
+
+// Con TEST_DATABASE_URL las mismas pruebas corren contra PostgreSQL (cada prueba parte de una base limpia)
+const PG = process.env.TEST_DATABASE_URL;
+const opened = [];
+async function testDb() {
+  let db;
+  if (!PG) db = await openDb(':memory:');
+  else {
+    const { default: pg } = await import('pg');
+    const c = new pg.Client({ connectionString: PG });
+    await c.connect();
+    await c.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
+    await c.end();
+    db = await openDb({ postgres: { connectionString: PG } });
+  }
+  opened.push(db);
+  return db;
+}
+after(async () => { for (const d of opened) await d.close().catch(() => {}); });
 const fakeMailer = (enabled = true) => ({
   enabled,
   async send(m) { sent.push(m); return { ok: enabled }; },
@@ -12,7 +31,7 @@ const fakeMailer = (enabled = true) => ({
 
 async function make(env = {}, mailer = fakeMailer()) {
   const config = loadConfig({ SIGNUP_MODE: 'invite', PUBLIC_URL: 'https://notas.test', ...env });
-  const app = await buildApp({ config, db: openDb(':memory:'), mailer });
+  const app = await buildApp({ config, db: await testDb(), mailer });
   const call = async (method, url, { body, token } = {}) => {
     const res = await app.inject({ method, url, payload: body, headers: token ? { authorization: `Bearer ${token}` } : {} });
     return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null };
@@ -130,7 +149,7 @@ test('invitaciones: crear, usar una vez, correo fijo, caducidad y revocación', 
 
 test('invitación caducada no sirve', async () => {
   const config = loadConfig({ SIGNUP_MODE: 'invite' });
-  const db = openDb(':memory:');
+  const db = await testDb();
   const app = await buildApp({ config, db, mailer: fakeMailer() });
   const call = async (m, u, o = {}) => {
     const r = await app.inject({ method: m, url: u, payload: o.body, headers: o.token ? { authorization: `Bearer ${o.token}` } : {} });
@@ -138,7 +157,7 @@ test('invitación caducada no sirve', async () => {
   };
   const admin = (await reg(call, 'admin@test.com')).body.token;
   const inv = await call('POST', '/api/invites', { token: admin, body: {} });
-  db.prepare('UPDATE invites SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
+  await db.prepare('UPDATE invites SET expires_at = ?').run(new Date(Date.now() - 1000).toISOString());
   assert.equal((await call('GET', `/api/invites/check/${tokenFromLink(inv.body.url)}`)).body.valid, false);
   assert.equal((await reg(call, 'x@test.com', { inviteToken: tokenFromLink(inv.body.url) })).status, 403);
 });
@@ -255,7 +274,7 @@ test('tokens personales: crear, usar, listar, revocar y aislamiento entre usuari
   assert.equal((await call('GET', '/api/auth/me', { token: tk.body.token })).status, 401);
 });
 
-test('migración: una base antigua (sin seq) conserva las notas y se pueden sincronizar', async () => {
+test('migración: una base antigua (sin seq) conserva las notas y se pueden sincronizar', { skip: Boolean(PG) && 'solo SQLite' }, async () => {
   const fs = await import('node:fs');
   const os = await import('node:os');
   const path = await import('node:path');
@@ -267,11 +286,11 @@ test('migración: una base antigua (sin seq) conserva las notas y se pueden sinc
     INSERT INTO users VALUES ('u1','a@b.co','x',1,1,'2026-01-01','2026-01-01');
     INSERT INTO notes (user_id,id,title,created_at,updated_at) VALUES ('u1','a','Vieja A','2026-01-01','2026-01-01'),('u1','b','Vieja B','2026-01-02','2026-01-02');`);
   old.close();
-  const db = openDb(dir);
-  const rows = db.prepare('SELECT id, seq FROM notes ORDER BY seq').all();
+  const db = await openDb(dir);
+  const rows = await db.prepare('SELECT id, seq FROM notes ORDER BY seq').all();
   assert.deepEqual(rows.map((r) => r.id), ['a', 'b']);
   assert.ok(rows.every((r) => r.seq > 0));
-  db.close();
+  await db.close();
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -282,7 +301,7 @@ test('persistencia: detecta si /data es un volumen y lo expone en /api/info', as
   assert.equal(isPersistent('/data', fake(true, 1, 1)), false, 'en Docker, mismo dispositivo que / = sin volumen');
   assert.equal(isPersistent('/data', fake(true, 2, 1)), true, 'en Docker, dispositivo distinto = volumen');
   const config = loadConfig({});
-  const app = await buildApp({ config, db: openDb(':memory:'), mailer: fakeMailer(), persistent: false });
+  const app = await buildApp({ config, db: await testDb(), mailer: fakeMailer(), persistent: false });
   assert.equal(JSON.parse((await app.inject({ method: 'GET', url: '/api/info' })).body).persistent, false);
 });
 

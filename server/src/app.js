@@ -40,7 +40,7 @@ export async function buildApp({ config, db, mailer, logger = false, persistent 
   app.decorate('authenticate', async (req, reply) => {
     const m = /^Bearer\s+(\S+)$/.exec(req.headers.authorization || '');
     if (m) {
-      const row = db
+      const row = await db
         .prepare(
           `SELECT u.id, u.email, u.is_admin, u.active, s.id AS session_id FROM sessions s
            JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`,
@@ -64,7 +64,7 @@ export async function buildApp({ config, db, mailer, logger = false, persistent 
     signupMode: config.signupMode,
     smtp: mailer.enabled,
     persistent, // false = los datos están en el disco del contenedor y se perderán al redesplegar
-    hasUsers: db.prepare('SELECT 1 FROM users LIMIT 1').get() !== undefined,
+    hasUsers: (await db.prepare('SELECT 1 FROM users LIMIT 1').get()) !== undefined,
   }));
 
   await app.register(async (api) => authRoutes(api, ctx));
