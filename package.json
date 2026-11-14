@@ -1,6 +1,6 @@
 {
   "name": "stickyflow",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "StickyFlow - Bloc de notas flotante e inteligente para Windows con IA y Bitácora",
   "main": "electron/main.js",
   "author": "StickyFlow Team",

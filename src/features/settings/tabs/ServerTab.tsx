@@ -59,8 +59,8 @@ export const ServerTab: React.FC = () => {
     }
   };
 
-  const connect = (e: React.FormEvent) => {
-    e.preventDefault();
+  const connect = () => {
+    if (busy) return;
     void run(async () => {
       const r = useToken
         ? await window.electronAPI?.syncConnectToken?.({ serverUrl, token })
@@ -71,6 +71,14 @@ export const ServerTab: React.FC = () => {
       }
       return r;
     });
+  };
+
+  // Enter dentro de un campo conecta; sin esto enviaría el formulario de Ajustes (que guarda y cierra la ventana)
+  const onEnter = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+      e.preventDefault();
+      connect();
+    }
   };
 
   const connected = status?.configured;
@@ -116,11 +124,10 @@ export const ServerTab: React.FC = () => {
           <div className="text-[11px] text-slate-500">Última sincronización: {status.lastSyncAt ? formatWhen(status.lastSyncAt) : 'aún no'}</div>
           {status.error && <div className="text-[11px] text-red-600">{status.error}</div>}
           <div className="flex flex-wrap gap-2">
-            <button className={btnPrimary} disabled={busy || status.phase === 'syncing'} onClick={() => run(() => window.electronAPI?.syncNow?.() as Promise<SyncReply>)}>
+            <button type="button" className={btnPrimary} disabled={busy || status.phase === 'syncing'} onClick={() => run(() => window.electronAPI?.syncNow?.() as Promise<SyncReply>)}>
               <RefreshCw size={13} /> Sincronizar ahora
             </button>
-            <button
-              className={btnGhost}
+            <button type="button" className={btnGhost}
               disabled={busy}
               onClick={() => window.confirm('¿Desconectar este equipo del servidor? Tus notas se quedan aquí y en el servidor.') && run(() => window.electronAPI?.syncDisconnect?.() as Promise<SyncReply>)}
             >
@@ -132,7 +139,7 @@ export const ServerTab: React.FC = () => {
           )}
         </div>
       ) : (
-        <form onSubmit={connect} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2.5">
+        <div onKeyDown={onEnter} className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2.5">
           <label className="block">
             <span className="block text-[11px] text-slate-500 mb-1">Dirección del servidor</span>
             <input className={inputCls} value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="https://notas.tu-dominio.com" autoComplete="off" required />
@@ -158,7 +165,7 @@ export const ServerTab: React.FC = () => {
 
           {error && <div className="text-[11px] text-red-600">{error}</div>}
           <div className="flex items-center justify-between gap-2">
-            <button type="submit" className={btnPrimary} disabled={busy}>
+            <button type="button" onClick={connect} className={btnPrimary} disabled={busy}>
               {busy ? <Loader2 size={13} className="animate-spin" /> : <Server size={13} />} Conectar
             </button>
             <button type="button" className="text-[11px] text-cyan-600 hover:underline flex items-center gap-1" onClick={() => { setUseToken(!useToken); setError(''); }}>
@@ -168,7 +175,7 @@ export const ServerTab: React.FC = () => {
           <p className="text-[10px] text-slate-400">
             Al conectar se unen tus notas de aquí con las del servidor (no se borra nada). Para crear tu cuenta pide una invitación al administrador de tu servidor.
           </p>
-        </form>
+        </div>
       )}
     </div>
   );
