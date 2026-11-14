@@ -302,7 +302,9 @@ test('persistencia: detecta si /data es un volumen y lo expone en /api/info', as
   assert.equal(isPersistent('/data', fake(true, 2, 1)), true, 'en Docker, dispositivo distinto = volumen');
   const config = loadConfig({});
   const app = await buildApp({ config, db: await testDb(), mailer: fakeMailer(), persistent: false });
-  assert.equal(JSON.parse((await app.inject({ method: 'GET', url: '/api/info' })).body).persistent, false);
+  const info = JSON.parse((await app.inject({ method: 'GET', url: '/api/info' })).body);
+  assert.equal(info.persistent, false);
+  assert.equal(info.database, PG ? 'postgres' : 'sqlite');
 });
 
 test('JSON: cuerpo vacío con Content-Type se acepta y el JSON roto da 400', async () => {

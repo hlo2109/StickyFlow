@@ -63,6 +63,7 @@ export async function buildApp({ config, db, mailer, logger = false, persistent 
     name: 'StickyFlow Server',
     signupMode: config.signupMode,
     smtp: mailer.enabled,
+    database: db.dialect, // 'postgres' | 'sqlite': qué base está usando este servidor
     persistent, // false = los datos están en el disco del contenedor y se perderán al redesplegar
     hasUsers: (await db.prepare('SELECT 1 FROM users LIMIT 1').get()) !== undefined,
   }));
