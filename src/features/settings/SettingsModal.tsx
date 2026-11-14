@@ -160,7 +160,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {currentTab === 'interview' && <InterviewTab {...tabProps} />}
             {currentTab === 'server' && <ServerTab />}
 
-            {/* Save Button Footer */}
+            {/* Save Button Footer (la pestaña del servidor se aplica con su propio botón «Conectar») */}
+            {currentTab !== 'server' && (
             <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
               <button
                 type="submit"
@@ -176,6 +177,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 )}
               </button>
             </div>
+            )}
           </div>
         </form>
     </div>

@@ -21,6 +21,7 @@ import {
   Volume2
 } from 'lucide-react';
 import { NoteColor } from '../types';
+import { SyncBadge } from './SyncBadge';
 
 interface HeaderProps {
   isPinned: boolean;
@@ -220,6 +221,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Middle/Right Quick Actions: AI, Meeting, Dropdown Menu, Settings, Sidebar */}
       <div className="flex items-center gap-1 window-no-drag shrink-0">
+        <SyncBadge compact />
         {/* HuggingFace AI Button */}
         <button
           onClick={onOpenAiModal}

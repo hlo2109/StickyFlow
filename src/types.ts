@@ -252,8 +252,8 @@ export interface SyncStatus {
   email: string;
   deviceName: string;
   lastSyncAt: string;
-  /** idle = al día · syncing = sincronizando · offline = sin conexión · auth = hay que volver a conectar · error */
-  phase: 'idle' | 'syncing' | 'offline' | 'auth' | 'error';
+  /** idle = al día · pending = cambios por enviar · syncing = sincronizando · offline = sin conexión · auth = hay que volver a conectar · error */
+  phase: 'idle' | 'pending' | 'syncing' | 'offline' | 'auth' | 'error';
   error: string;
 }
 export type SyncReply = { ok: true; status: SyncStatus } | { ok: false; error: string };

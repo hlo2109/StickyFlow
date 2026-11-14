@@ -11,6 +11,7 @@ const btnGhost =
 
 const PHASE: Record<SyncStatus['phase'], { text: string; cls: string }> = {
   idle: { text: 'Al día', cls: 'text-emerald-600' },
+  pending: { text: 'Cambios por enviar…', cls: 'text-sky-600' },
   syncing: { text: 'Sincronizando…', cls: 'text-cyan-600' },
   offline: { text: 'Sin conexión (se reintentará)', cls: 'text-amber-600' },
   auth: { text: 'Hay que volver a conectar', cls: 'text-red-600' },
@@ -94,6 +95,10 @@ export const ServerTab: React.FC = () => {
         </span>
       </div>
 
+      <p className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">
+        Esta pestaña <b>no usa «Guardar Cambios»</b>: la conexión se hace al pulsar <b>Conectar</b>. Verás el resultado aquí mismo y el icono de la nube en la lista de notas y en cada nota.
+      </p>
+
       {connected && status ? (
         <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 space-y-2.5">
           <div className="flex items-start justify-between gap-2">
@@ -103,7 +108,7 @@ export const ServerTab: React.FC = () => {
             </div>
             {phase && (
               <span className={`flex items-center gap-1 text-[11px] font-semibold shrink-0 ${phase.cls}`}>
-                {status.phase === 'syncing' ? <Loader2 size={13} className="animate-spin" /> : status.phase === 'idle' ? <CheckCircle2 size={13} /> : status.phase === 'offline' ? <CloudOff size={13} /> : <TriangleAlert size={13} />}
+                {status.phase === 'syncing' || status.phase === 'pending' ? <Loader2 size={13} className="animate-spin" /> : status.phase === 'idle' ? <CheckCircle2 size={13} /> : status.phase === 'offline' ? <CloudOff size={13} /> : <TriangleAlert size={13} />}
                 {phase.text}
               </span>
             )}

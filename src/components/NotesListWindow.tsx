@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { SyncBadge } from './SyncBadge';
 import {
   Clock,
   ExternalLink,
@@ -155,6 +156,7 @@ export const NotesListWindow: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-1 window-no-drag">
+          <SyncBadge />
           <button
             type="button"
             onClick={handleToggleWindowPin}

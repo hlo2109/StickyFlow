@@ -76,7 +76,7 @@ function createSyncEngine({ fetchImpl = fetch, readNotes, writeNotes, loadState,
   let again = false;
   let timer = null;
   let interval = null;
-  let runtime = { phase: 'idle', error: '' }; // idle | syncing | error | offline | auth
+  let runtime = { phase: 'idle', error: '' }; // idle | pending | syncing | error | offline | auth
 
   const configured = () => Boolean(state.serverUrl && state.token);
   const status = () => ({
@@ -261,6 +261,10 @@ function createSyncEngine({ fetchImpl = fetch, readNotes, writeNotes, loadState,
   /** Pide una sincronización pronto (agrupa varios guardados seguidos). */
   function schedule(ms = 2500) {
     if (!configured() || runtime.phase === 'auth') return;
+    if (runtime.phase === 'idle' || runtime.phase === 'error') {
+      runtime = { phase: 'pending', error: '' }; // «hay cambios por enviar» hasta que arranque la sincronización
+      emit();
+    }
     clearTimeout(timer);
     timer = setTimeout(() => { syncNow(); }, ms);
   }
