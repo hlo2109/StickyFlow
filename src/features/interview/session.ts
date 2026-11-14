@@ -27,8 +27,15 @@ import { synthesizeSpeech, SynthOptions } from './services/elevenlabs';
 import { SpeechPlayer } from './services/speechPlayer';
 import { isLikelyEcho, pruneSpoken, SpokenRecord } from './echoGuard';
 import { splitForSpeech } from './sentences';
+import { endsSentence, joinText, MAX_JOIN_CHARS } from './joinSegments';
 
 export type LineSide = 'me' | 'them';
+/** Tiempos de una frase al llegar: cuándo llegó el audio, cuánto esperó turno y cuánto tardó la transcripción */
+interface Timing {
+  arrived: number;
+  waitMs: number;
+  sttMs: number;
+}
 export type LineStatus = 'translating' | 'ready' | 'error';
 
 /** Cuánto tardó cada etapa de una frase (milisegundos). */
@@ -76,6 +83,10 @@ export interface InterviewSnapshot {
   autoSpeak: boolean;
   /** En modo manual, genera la voz en cuanto se traduce (gasta más caracteres, pero 🔊 suena al instante) */
   prefetch: boolean;
+  /** Turno manual: lo que dices se junta en un borrador y se traduce TODO junto al pulsar «Traducir» */
+  manualTurns: boolean;
+  /** Borrador del turno manual (lo transcrito hasta ahora, sin traducir) */
+  draft: string;
   speaking: boolean;
   pendingSpeech: number;
   /** Caracteres de voz generados (es lo que cobra ElevenLabs) */
@@ -128,6 +139,10 @@ export interface StartOptions {
   /** Silencio (ms) que cierra una frase: menos = responde antes (pero puede partir frases con pausas). */
   silenceMs?: number;
   prefetch?: boolean;
+  /** Si una frase queda a medias (sin . ? !), espera hasta este tiempo (ms) por si sigues, y traduce todo junto. 0 = no espera. */
+  joinMs?: number;
+  /** Turno manual: junta todo lo que dices y se traduce al pulsar «Traducir» */
+  manualTurns?: boolean;
 }
 
 /** Promedio de los tiempos de las frases tuyas que ya tienen medición. */
@@ -154,6 +169,8 @@ export class InterviewSession {
     canSpeak: false,
     autoSpeak: true,
     prefetch: false,
+    manualTurns: false,
+    draft: '',
     speaking: false,
     pendingSpeech: 0,
     charsSpoken: 0,
@@ -174,6 +191,11 @@ export class InterviewSession {
   private audioCache = new Map<string, Blob[]>();
   private arrivedAt = new Map<string, number>();
   private generation = 0; // se incrementa al detener para ignorar trabajo pendiente
+  /** Espera máxima por una continuación cuando la frase quedó a medias (0 = desactivado) */
+  private joinMs = 0;
+  /** Texto de una frase a medias esperando que continúe, por lado */
+  private held: Record<LineSide, { text: string; t: Timing } | null> = { me: null, them: null };
+  private holdTimers: Record<LineSide, ReturnType<typeof setTimeout> | null> = { me: null, them: null };
 
   constructor(private getSettings: () => AppSettings, private deps: InterviewDeps = defaultDeps) {
     this.player = deps.createPlayer((pending, speaking) => this.patch({ pendingSpeech: pending, speaking }));
@@ -264,6 +286,9 @@ export class InterviewSession {
     this.spoken = [];
     this.audioCache.clear();
     this.arrivedAt.clear();
+    this.joinMs = Math.max(0, options.joinMs ?? 0);
+    this.clearHold('me');
+    this.clearHold('them');
     const systemDeviceId = settings.interviewTheirAudioDeviceId?.trim() || undefined;
     this.patch({
       lines: [],
@@ -274,7 +299,9 @@ export class InterviewSession {
       isolated: Boolean(systemDeviceId),
       canSpeak,
       autoSpeak: options.autoSpeak && canSpeak,
-      prefetch: Boolean(options.prefetch) && canSpeak
+      prefetch: Boolean(options.prefetch) && canSpeak,
+      manualTurns: Boolean(options.manualTurns),
+      draft: ''
     });
 
     const gen = this.generation;
@@ -300,6 +327,8 @@ export class InterviewSession {
     if (!this.snapshot.running) return;
     this.patch({ running: false });
     await this.deps.capture.stop();
+    this.flushHeld('me'); // una frase a medias no se pierde al detener
+    this.flushHeld('them');
     // Lo ya capturado todavía se traduce y se termina de decir (para no cortar tu última frase);
     // lo que se hable después no. Para cortar el audio al instante está silence().
     await Promise.all([this.chains.me, this.chains.them]);
@@ -317,6 +346,7 @@ export class InterviewSession {
   private enqueueSegment(seg: MeetingSegment): void {
     const side: LineSide = seg.source === 'mic' ? 'me' : 'them';
     const arrived = Date.now();
+    this.clearHoldTimer(side); // llegó un trozo nuevo: la frase retenida espera a que se transcriba para unirse
     this.chains[side] = this.chains[side].then(() => this.processSegment(seg, side, arrived)).catch((e) => {
       console.warn('[InterviewSession] error procesando frase:', e);
     });
@@ -326,7 +356,6 @@ export class InterviewSession {
     const settings = this.getSettings();
     const { mine, theirs } = this.langs();
     const from = side === 'me' ? mine : theirs;
-    const to = side === 'me' ? theirs : mine;
 
     const waitMs = Date.now() - arrived;
     const tStt = Date.now();
@@ -334,23 +363,120 @@ export class InterviewSession {
     const sttMs = Date.now() - tStt;
     if (!stt.success) {
       this.patch({ error: stt.error || 'No se pudo transcribir el audio.' });
+      this.armHold(side);
       return;
     }
-    if (!stt.text) return; // silencio o ruido
+    if (!stt.text) {
+      this.armHold(side); // silencio o ruido: si había una frase a medias, sigue su cuenta atrás
+      return;
+    }
 
     // El audio del sistema también oye mi propia voz traducida: si es eso, no es «Ellos», es eco.
     // (Con una fuente aislada no puede ocurrir, así que no se filtra nada.)
     if (side === 'them' && !this.snapshot.isolated && isLikelyEcho(stt.text, this.spoken)) {
       this.patch({ echoesBlocked: this.snapshot.echoesBlocked + 1 });
+      this.armHold(side);
       return;
     }
 
-    const line = this.addLine(side, stt.text);
-    this.arrivedAt.set(line.id, arrived);
-    this.mergeTimings(line.id, { waitMs, sttMs });
+    await this.onTranscript(side, stt.text, { arrived, waitMs, sttMs });
+  }
+
+  /**
+   * Qué hacer con lo recién transcrito:
+   *  - Turno manual (tu lado): se acumula en el borrador; se traduce todo junto al pulsar «Traducir».
+   *  - Si la frase quedó a medias (no termina en . ? !), se retiene un momento por si continúa y se une.
+   *  - Si es una frase completa, se traduce de inmediato.
+   */
+  private async onTranscript(side: LineSide, text: string, t: Timing): Promise<void> {
+    if (side === 'me' && this.snapshot.manualTurns) {
+      this.patch({ draft: joinText(this.snapshot.draft, text) });
+      return;
+    }
+
+    const held = this.held[side];
+    if (held) {
+      this.clearHold(side);
+      text = joinText(held.text, text);
+      // la medición cuenta desde el ÚLTIMO trozo (cuando terminaste de hablar); espera y transcripción se suman
+      t = { arrived: t.arrived, waitMs: held.t.waitMs + t.waitMs, sttMs: held.t.sttMs + t.sttMs };
+    }
+
+    // Al detener ya no se espera nada: se traduce lo que haya
+    if (this.snapshot.running && this.joinMs > 0 && !endsSentence(text) && text.length < MAX_JOIN_CHARS) {
+      this.held[side] = { text, t };
+      this.armHold(side);
+      return;
+    }
+    await this.deliver(side, text, t);
+  }
+
+  private clearHoldTimer(side: LineSide): void {
+    const timer = this.holdTimers[side];
+    if (timer) clearTimeout(timer);
+    this.holdTimers[side] = null;
+  }
+
+  private clearHold(side: LineSide): void {
+    this.clearHoldTimer(side);
+    this.held[side] = null;
+  }
+
+  /** (Re)inicia la cuenta atrás de una frase retenida; al agotarse se traduce tal cual. */
+  private armHold(side: LineSide): void {
+    if (!this.held[side]) return;
+    this.clearHoldTimer(side);
+    const gen = this.generation;
+    this.holdTimers[side] = setTimeout(() => {
+      if (gen === this.generation) this.flushHeld(side);
+    }, this.joinMs);
+  }
+
+  private flushHeld(side: LineSide): void {
+    this.clearHoldTimer(side);
+    const h = this.held[side];
+    if (!h) return;
+    this.held[side] = null;
+    this.chains[side] = this.chains[side]
+      .then(() => this.deliver(side, h.text, h.t))
+      .catch((e) => console.warn('[InterviewSession] error procesando frase:', e));
+  }
+
+  // ---------------------------------------------------------------- turno manual
+
+  public setManualTurns(value: boolean): void {
+    this.patch({ manualTurns: value });
+    if (!value) this.translateDraft(); // al volver a automático no se pierde lo dicho
+  }
+
+  /** Traduce TODO lo acumulado en el borrador como una sola frase. */
+  public translateDraft(): void {
+    const text = this.snapshot.draft.trim();
+    if (!text) return;
+    const arrived = Date.now();
+    this.patch({ draft: '' });
+    this.chains.me = this.chains.me
+      .then(() => this.deliver('me', text, { arrived, waitMs: 0, sttMs: 0 }))
+      .catch((e) => console.warn('[InterviewSession] error procesando turno:', e));
+  }
+
+  public discardDraft(): void {
+    this.patch({ draft: '' });
+  }
+
+  /** Muestra la frase, la traduce y (según el modo) la dice o deja la voz lista. */
+  private async deliver(side: LineSide, text: string, t: Timing): Promise<void> {
+    const settings = this.getSettings();
+    const { mine, theirs } = this.langs();
+    const from = side === 'me' ? mine : theirs;
+    const to = side === 'me' ? theirs : mine;
+
+    const line = this.addLine(side, text);
+    this.arrivedAt.set(line.id, t.arrived);
+    this.mergeTimings(line.id, { waitMs: t.waitMs, sttMs: t.sttMs });
 
     const tTr = Date.now();
-    const tr = await this.deps.translateText(stt.text, from, to, settings, this.recentOriginals());
+    const tr = await this.deps.translateText(text, from, to, settings, this.recentOriginals());
     const translateMs = Date.now() - tTr;
 
     if (!tr.success || !tr.text) {

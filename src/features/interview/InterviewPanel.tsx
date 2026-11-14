@@ -15,7 +15,8 @@ import {
   Settings as SettingsIcon,
   Mic,
   Zap,
-  Brain
+  Brain,
+  Send
 } from 'lucide-react';
 import { AppSettings, Note } from '../../types';
 import { useInterviewSession } from './useInterviewSession';
@@ -146,6 +147,7 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes 
     return saved && saved in SPEED_PRESETS ? (saved as SpeedPreset) : 'normal';
   });
   const [prefetch, setPrefetch] = useState(() => localStorage.getItem('stickyflow.interview.prefetch') === '1');
+  const [manualTurns, setManualTurns] = useState(() => localStorage.getItem('stickyflow.interview.manual') === '1');
   const [now, setNow] = useState(Date.now());
   const feedRef = useRef<HTMLDivElement>(null);
   const { session, snapshot } = useInterviewSession(setup.effectiveSettings);
@@ -158,6 +160,19 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes 
   }, [setup.micId, setup.theirSourceId, snapshot.running, snapshot.starting]);
 
   useEffect(() => () => meetingCapture.release(), []);
+
+  // Turno manual: Ctrl+Enter traduce todo lo acumulado
+  useEffect(() => {
+    if (!snapshot.running || !snapshot.manualTurns) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        session.translateDraft();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [session, snapshot.running, snapshot.manualTurns]);
 
   useEffect(() => {
     if (!snapshot.running) return;
@@ -185,7 +200,19 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes 
   const theirs = settings.interviewTheirLang || 'en';
 
   const handleStart = () =>
-    session.start({ micDeviceId: setup.micId, autoSpeak, prefetch, silenceMs: SPEED_PRESETS[speed].silenceMs });
+    session.start({
+      micDeviceId: setup.micId,
+      autoSpeak,
+      prefetch,
+      silenceMs: SPEED_PRESETS[speed].silenceMs,
+      joinMs: SPEED_PRESETS[speed].joinMs,
+      manualTurns
+    });
+  const handleManualTurns = (value: boolean) => {
+    setManualTurns(value);
+    localStorage.setItem('stickyflow.interview.manual', value ? '1' : '0');
+    session.setManualTurns(value);
+  };
   const handleToggleAutoSpeak = () => {
     const next = !autoSpeak;
     setAutoSpeak(next);
@@ -386,6 +413,37 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes 
         </div>
       )}
 
+      {/* Turno manual: lo que vas diciendo se junta aquí y se traduce TODO junto al pulsar «Traducir» */}
+      {snapshot.running && snapshot.manualTurns && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/30 shrink-0 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="font-semibold text-sky-300">Tu turno (sin traducir todavía)</span>
+            <span className="text-slate-500">Ctrl + Enter para traducir</span>
+          </div>
+          <div className={`text-sm min-h-[2.25rem] max-h-28 overflow-y-auto ${snapshot.draft ? 'text-slate-100' : 'text-slate-500 italic'}`}>
+            {snapshot.draft || 'Habla con calma: aquí se irá juntando todo lo que digas, aunque hagas pausas.'}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => session.translateDraft()}
+              disabled={!snapshot.draft.trim()}
+              className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Send size={13} /> Traducir
+            </button>
+            <button
+              type="button"
+              onClick={() => session.discardDraft()}
+              disabled={!snapshot.draft}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-xs cursor-pointer"
+            >
+              Borrar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Velocidad: dónde se va el tiempo y cómo bajarlo */}
       {(tips.length > 0 || snapshot.stats.count >= 2) && (
         <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700 text-[11px] text-slate-300 shrink-0 space-y-1">
@@ -459,6 +517,18 @@ export const InterviewPanel: React.FC<InterviewPanelProps> = ({ settings, notes 
                 </option>
               ))}
             </select>
+          </label>
+          <label
+            className="flex items-center gap-1 cursor-pointer"
+            title="Junta TODO lo que digas (aunque hagas pausas) y lo traduce de una vez al pulsar «Traducir» (Ctrl+Enter). Ideal para respuestas largas."
+          >
+            <input
+              type="checkbox"
+              checked={manualTurns}
+              onChange={(e) => handleManualTurns(e.target.checked)}
+              className="accent-sky-500"
+            />
+            ✋ Turno manual
           </label>
           {!autoSpeak && (
             <label

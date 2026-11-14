@@ -7,11 +7,14 @@ export function fmtSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
 }
 
-/** Tiempos de cierre de frase: menos silencio = responde antes, pero puede partir frases con pausas. */
+/**
+ * Tiempos de cierre de frase: menos silencio = responde antes, pero puede partir frases con pausas.
+ * `joinMs`: si lo dicho quedó a medias (sin . ? !), cuánto más se espera por si sigues, para traducir todo junto.
+ */
 export const SPEED_PRESETS = {
-  rapida: { label: 'Rápida', silenceMs: 400, hint: 'Responde antes; puede partir frases si haces pausas largas' },
-  normal: { label: 'Normal', silenceMs: 600, hint: 'Equilibrada' },
-  cuidadosa: { label: 'Cuidadosa', silenceMs: 900, hint: 'Espera más antes de traducir; no parte frases con pausas' }
+  rapida: { label: 'Rápida', silenceMs: 400, joinMs: 700, hint: 'Responde antes; si haces una pausa a mitad de frase espera poco antes de traducir' },
+  normal: { label: 'Normal', silenceMs: 600, joinMs: 1200, hint: 'Equilibrada' },
+  cuidadosa: { label: 'Cuidadosa', silenceMs: 900, joinMs: 1800, hint: 'Espera más antes de traducir; junta mejor las frases con pausas largas' }
 } as const;
 export type SpeedPreset = keyof typeof SPEED_PRESETS;
 
