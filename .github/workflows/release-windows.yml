@@ -1,0 +1,128 @@
+name: Release (Windows)
+
+# Compila StickyFlow para Windows en los servidores de GitHub y, si la firma está activada, lo firma con SignPath.
+# Se ejecuta al subir una etiqueta de versión (por ejemplo v1.2.4) o a mano desde la pestaña Actions.
+#
+# Firma (opcional hasta que SignPath apruebe el proyecto): se activa creando la variable de repositorio
+# SIGNING_ENABLED = true, más el secreto SIGNPATH_API_TOKEN y las variables SIGNPATH_ORGANIZATION_ID y
+# SIGNPATH_PROJECT_SLUG. Guía completa en docs/FIRMA.md (local).
+#
+# Orden (importa): 1) se prepara la app sin instalador, 2) se FIRMA StickyFlow.exe, 3) se crea el instalador con la app ya
+# firmada, 4) se FIRMA el instalador. Si solo se firmara el instalador, la app instalada seguiría sin firma y el
+# Control inteligente de aplicaciones de Windows la bloquearía igual.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      SIGNING: ${{ vars.SIGNING_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Compilar la interfaz
+        run: npx vite build
+
+      - name: Preparar la app (sin instalador)
+        run: npx electron-builder --win dir --x64 --publish never
+
+      # ---------- 1) firmar StickyFlow.exe ----------
+      - name: Subir la app sin firmar
+        if: env.SIGNING == 'true'
+        id: app-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-unsigned
+          path: release/win-unpacked
+
+      - name: Firmar la app (SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.app-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-app
+
+      - name: Reemplazar la app por la firmada
+        if: env.SIGNING == 'true'
+        shell: pwsh
+        run: |
+          # SignPath devuelve el contenido firmado; si llega como .zip se descomprime
+          $zip = Get-ChildItem signed-app -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($zip) { Expand-Archive $zip.FullName -DestinationPath signed-app-files -Force; $src = 'signed-app-files' } else { $src = 'signed-app' }
+          Remove-Item release/win-unpacked -Recurse -Force
+          Copy-Item $src release/win-unpacked -Recurse
+          if (-not (Test-Path release/win-unpacked/StickyFlow.exe)) { throw 'No se encontró StickyFlow.exe en la app firmada' }
+
+      # ---------- 2) crear el instalador con la app (firmada) ----------
+      - name: Crear instalador y portable
+        run: npx electron-builder --win nsis portable --x64 --prepackaged release/win-unpacked --publish never
+
+      # ---------- 3) firmar el instalador y el portable ----------
+      - name: Subir instaladores sin firmar
+        id: installers-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-unsigned
+          path: |
+            release/StickyFlow-Setup-*.exe
+            release/StickyFlow-Portable.exe
+
+      - name: Firmar los instaladores (SignPath)
+        if: env.SIGNING == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installers
+          github-artifact-id: ${{ steps.installers-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed-installers
+
+      - name: Reunir los instaladores finales
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-release | Out-Null
+          if ($env:SIGNING -eq 'true') {
+            $zip = Get-ChildItem signed-installers -Filter *.zip -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($zip) { Expand-Archive $zip.FullName -DestinationPath signed-installers -Force }
+            Get-ChildItem signed-installers -Recurse -Filter *.exe | Copy-Item -Destination dist-release
+          } else {
+            Get-ChildItem release/StickyFlow-Setup-*.exe, release/StickyFlow-Portable.exe | Copy-Item -Destination dist-release
+          }
+          Get-ChildItem dist-release | Select-Object Name, Length
+
+      - name: Guardar los instaladores finales
+        uses: actions/upload-artifact@v4
+        with:
+          name: StickyFlow-Windows
+          path: dist-release/*.exe
+
+      - name: Publicar en la versión de GitHub
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-release/*.exe
+          generate_release_notes: true
